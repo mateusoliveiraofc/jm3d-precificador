@@ -605,10 +605,29 @@ function saveProductLink(orderId,productId){
 function findProductForOrder(o){
   return findProductMatch(o).product;
 }
+function firstPositiveNumber(...values){
+  for(const v of values){
+    const n=Number(v);
+    if(Number.isFinite(n)&&n>0)return n;
+  }
+  return 0;
+}
+function explicitProductUnitCost(product){
+  const pc=product?.costs||{};
+  return firstPositiveNumber(
+    pc.totalUnitCost,
+    pc.unitCost,
+    pc.totalCost,
+    product?.totalCost,
+    product?.unitCost,
+    product?.cost
+  );
+}
 function productUnitCost(product,meiUnit=0){
   const s=getMarketplaceSettings(), cfg=getLocalConfig();
   if(!product)return {total:meiUnit,filament:0,energy:0,packaging:0,bubble:0,label:0,maintenance:0,waste:0,postProcess:0,nozzleWear:0,extra:0,mei:meiUnit,other:0};
   const pc=product.costs||{};
+  const explicitUnitCost=explicitProductUnitCost(product);
   const weight=Number(pc.weightGrams ?? product.weight)||0;
   const printH=Number(pc.printTimeHours ?? product.printH)||0;
   const filament=weight/1000*(Number(pc.filamentCostPerKg)||s.filamentKgPrice||95);
@@ -623,13 +642,13 @@ function productUnitCost(product,meiUnit=0){
   const base=filament+energy+packaging+bubble+label+maintenance+extra+postProcess+nozzleWear;
   const loss=base*((Number(pc.wastePercent)||s.lossPct||0)/100);
   const other=label+maintenance+loss+extra+postProcess+nozzleWear;
-  return {total:base+loss+meiUnit,filament,energy,packaging,bubble,label,maintenance,waste:loss,postProcess,nozzleWear,extra,mei:meiUnit,other};
+  const productionTotal=explicitUnitCost||base+loss;
+  return {total:productionTotal+meiUnit,filament,energy,packaging,bubble,label,maintenance,waste:loss,postProcess,nozzleWear,extra,mei:meiUnit,other};
 }
 function enrichOrder(o,meiUnit=0){
   o=Object.assign({},o,{marketplace:canonicalMarketplace(o.marketplace),orderId:o.orderId||o.id,productName:o.productName||o.importedProductName,sku:o.sku||o.importedSku,qty:o.qty||o.quantity||1,date:o.date||o.orderDate,paymentDate:o.paymentDate||o.paidDate});
   const match=findProductMatch(o);
   const product=match.product;
-  const c=productUnitCost(product,meiUnit);
   const qty=Number(o.qty)||1;
   const fin=o.financial||{};
   const gross=Number(fin.grossAmount ?? o.gross)||0;
@@ -637,10 +656,12 @@ function enrichOrder(o,meiUnit=0){
   const discounts=Math.abs(Number(fin.marketplaceDiscount||0)+Number(fin.sellerDiscount||0))||Math.abs(Number(o.discounts)||0);
   const shipping=Number(fin.shippingCostToSeller ?? o.shipping)||0;
   const net=Number(fin.netReceived ?? o.net)||(gross-fees-discounts-Math.abs(shipping));
+  let c=productUnitCost(product,meiUnit);
+  if(!product)c={total:qty?net/qty:0,filament:0,energy:0,packaging:0,bubble:0,label:0,maintenance:0,waste:0,postProcess:0,nozzleWear:0,extra:0,mei:0,other:0};
   const cost=c.total*qty;
-  const profit=net-cost;
-  const margin=net>0?profit/net*100:0;
-  const health=profit<0?'prejuizo':margin<15?'margem_baixa':margin<25?'atenção':'healthy';
+  const profit=product?net-cost:0;
+  const margin=product&&net>0?profit/net*100:0;
+  const health=!product?'sem_vinculo':profit<0?'prejuizo':margin<15?'margem_baixa':margin<25?'atenção':'healthy';
   return Object.assign({},o,{
     id:o.id||makeImportId(o),
     orderDate:o.date||o.orderDate||'',
@@ -667,7 +688,7 @@ function enrichOrder(o,meiUnit=0){
     },
     profit:{netProfit:profit,marginPercent:margin,status:health},
     unitCost:c.total,totalCost:cost,net,profit,margin,
-    health:profit<0?'bad':margin<15?'warn':'ok',
+    health:!product?'unlinked':profit<0?'bad':margin<15?'warn':'ok',
     costParts:c,
     updatedAt:new Date().toISOString()
   });
@@ -1343,6 +1364,7 @@ function refStoreCards(orders){
 }
 function refChampionProduct(orders){
   const rows=productPerformance(orders).filter(p=>p.qty>0).sort((a,b)=>b.profit-a.profit);
+  auditProductCalculations('Financeiro/Dashboard',rows);
   return rows.find(p=>p.photo&&p.linked)||rows.find(p=>p.photo)||rows[0]||null;
 }
 function renderFinanceiroView(){
@@ -1360,6 +1382,47 @@ function renderFinanceiroView(){
     <button class="btn btn-export" onclick="exportAnalysisCsv()">Exportar CSV da análise</button>
   </div>`;
 }
+function orderQuantity(o){return Number(o.qty ?? o.quantity)||1;}
+function orderGross(o){return Number(o.gross ?? o.financial?.grossAmount)||0;}
+function orderNet(o){return Number(o.net ?? o.financial?.netReceived)||0;}
+function resolveProductPerformanceUnitCost(product,orders){
+  const explicit=explicitProductUnitCost(product);
+  if(explicit>0)return explicit;
+  const computed=productUnitCost(product,0).total;
+  if(computed>0)return computed;
+  const qty=(orders||[]).reduce((t,o)=>t+orderQuantity(o),0);
+  const cost=(orders||[]).reduce((t,o)=>t+(Number(o.totalCost)||Number(o.productionCost?.totalCost)||0),0);
+  return qty?cost/qty:0;
+}
+function auditProductCalculations(context,products){
+  if(!Array.isArray(products))return;
+  const rows=products.filter(p=>Number(p.qty)>0).map(p=>{
+    const qty=Number(p.qty)||0, revenue=Number(p.net)||0, unit=Number(p.unitCost)||0;
+    const expectedCost=unit*qty, expectedProfit=revenue-expectedCost, expectedMargin=revenue?expectedProfit/revenue*100:0;
+    const cardCost=Number(p.cost)||0, cardProfit=Number(p.profit)||0, cardMargin=Number(p.margin)||0;
+    return {
+      contexto:context,
+      nome:p.name,
+      quantidade:qty,
+      receita:Number(revenue.toFixed(2)),
+      custo_unitario:Number(unit.toFixed(2)),
+      custo_total:Number(expectedCost.toFixed(2)),
+      lucro:Number(expectedProfit.toFixed(2)),
+      margem:Number(expectedMargin.toFixed(2)),
+      card_custo:Number(cardCost.toFixed(2)),
+      card_lucro:Number(cardProfit.toFixed(2)),
+      card_margem:Number(cardMargin.toFixed(2)),
+      divergencia:(Math.abs(expectedCost-cardCost)>0.01||Math.abs(expectedProfit-cardProfit)>0.01||Math.abs(expectedMargin-cardMargin)>0.01)?'SIM':''
+    };
+  });
+  if(!rows.length)return;
+  window.__jm3dCalculationAudit={context,rows,updatedAt:new Date().toISOString()};
+  window.__jm3dCalculationAudits=[...(window.__jm3dCalculationAudits||[]),window.__jm3dCalculationAudit].slice(-10);
+  console.groupCollapsed(`[JM3D auditoria de calculo] ${context}`);
+  console.log('[JM3D auditoria de calculo dados]', JSON.stringify(rows));
+  console.table(rows);
+  console.groupEnd();
+}
 function productPerformance(orders=filteredOrders()){
   const catalog=catalogProducts();
   const byId={};
@@ -1367,18 +1430,33 @@ function productPerformance(orders=filteredOrders()){
     const id=o.linkedProductId||slug(o.linkedProductName||o.productName||'sem_vinculo');
     const product=catalog.find(p=>p.id===id||p.legacyProductId===id)||{};
     byId[id]=byId[id]||{id,name:o.linkedProductName||product.name||o.productName||'Produto não vinculado',sku:product.sku||o.sku||'',itemId:o.itemId||o.importedItemId||firstMarketplaceId(product)||'',category:product.category||'',photo:product.photoUrl||product.photo||o.importedPhotoUrl||'',linked:!!o.linkedProductId,qty:0,orders:0,gross:0,net:0,cost:0,profit:0,margin:0,mainMarketplace:'',marketplaces:{}};
-    const p=byId[id], qty=Number(o.qty)||1, m=marketplaceFilterValue(o.marketplace);
-    p.qty+=qty; p.orders++; p.gross+=Number(o.gross)||0; p.net+=Number(o.net)||0; p.cost+=Number(o.totalCost)||0; p.profit+=Number(o.profit)||0;
-    p.marketplaces[m]=(p.marketplaces[m]||0)+(Number(o.profit)||0);
+    byId[id].unitCost=byId[id].unitCost||0;
+    byId[id].marketplaceStats=byId[id].marketplaceStats||{};
+    byId[id]._orders=byId[id]._orders||[];
+    const p=byId[id], qty=orderQuantity(o), m=marketplaceFilterValue(o.marketplace);
+    p.qty+=qty; p.orders++; p.gross+=orderGross(o); p.net+=orderNet(o); p._orders.push(o);
+    p.marketplaceStats[m]=p.marketplaceStats[m]||{qty:0,net:0,profit:0};
+    p.marketplaceStats[m].qty+=qty;
+    p.marketplaceStats[m].net+=orderNet(o);
   });
   Object.values(byId).forEach(p=>{
+    const product=catalog.find(x=>x.id===p.id||x.legacyProductId===p.id)||{};
+    p.unitCost=p.linked?resolveProductPerformanceUnitCost(product,p._orders):(p.qty?p.net/p.qty:0);
+    p.cost=p.unitCost*p.qty;
+    p.profit=p.net-p.cost;
+    Object.keys(p.marketplaceStats||{}).forEach(m=>{
+      const stat=p.marketplaceStats[m];
+      stat.profit=stat.net-(p.unitCost*stat.qty);
+      p.marketplaces[m]=stat.profit;
+    });
     p.margin=p.net?p.profit/p.net*100:0;
     p.mainMarketplace=Object.keys(p.marketplaces).sort((a,b)=>p.marketplaces[b]-p.marketplaces[a])[0]||'-';
+    delete p._orders;
   });
   catalog.forEach(product=>{
     const id=product.id||product.legacyProductId;
     if(!id||byId[id])return;
-    byId[id]={id,name:product.name||'Produto sem nome',sku:product.sku||'',itemId:firstMarketplaceId(product),category:product.category||'',photo:product.photoUrl||product.photo||'',linked:true,qty:0,orders:0,gross:0,net:0,cost:0,profit:0,margin:0,mainMarketplace:mainMarketplaceFromProduct(product),marketplaces:{}};
+    byId[id]={id,name:product.name||'Produto sem nome',sku:product.sku||'',itemId:firstMarketplaceId(product),category:product.category||'',photo:product.photoUrl||product.photo||'',linked:true,qty:0,orders:0,gross:0,net:0,cost:0,profit:0,margin:0,unitCost:resolveProductPerformanceUnitCost(product,[]),mainMarketplace:mainMarketplaceFromProduct(product),marketplaces:{},marketplaceStats:{}};
   });
   return Object.values(byId);
 }
@@ -1401,6 +1479,7 @@ function renderErpProducts(){
   };
   const labels={sold:'Mais vendidos',profit:'Mais lucrativos',margin:'Maior margem',lowMargin:'Menor margem',loss:'Prejuízo',slow:'Pouca saída'};
   const rows=[...products].sort(rankers[erpProductRank]||rankers.profit);
+  auditProductCalculations('Produtos',rows);
   content.innerHTML=`<div class="erp-shell">${erpFilters()}<section class="erp-section"><h3>Produtos <small>${rows.length} no catálogo</small></h3>
     <div class="compact-actions" style="margin-bottom:10px"><button class="btn btn-primary" onclick="openStoreProductImport()">Importar produtos da loja</button><button class="btn btn-secondary" onclick="swTab('calc')">Cadastrar manual</button></div>
     <div class="product-rank-tabs">${Object.keys(labels).map(k=>`<button class="${erpProductRank===k?'on':''}" onclick="erpProductRank='${k}';renderErpProducts()">${labels[k]}</button>`).join('')}</div>
@@ -1635,10 +1714,13 @@ async function saveStoreProduct(){
   const now=new Date().toISOString();
   const id='prod_'+slug(sku||itemId||name);
   const old=(catalogProducts().find(p=>p.id===id)||{});
+  const oldUnitCost=explicitProductUnitCost(old);
   const channel=storeKey.startsWith('tiktok')?'tiktokShop':'shopee';
   const oldSettings=old.marketplaceSettings||{};
   const product=Object.assign({},old,{
     id,name,sku:sku||old.sku||'',photoUrl:photoUrl||old.photoUrl||old.photo||'',category:old.category||'',
+    totalCost:oldUnitCost||0,
+    unitCost:oldUnitCost||0,
     notes:old.notes||'Produto importado/cadastrado a partir da loja.',
     aliases:[...new Set([...(old.aliases||[]),...automaticAliases(name,sku,itemId),...aliasesManual])],
     links:Object.assign({},old.links||{},links),
@@ -1647,7 +1729,7 @@ async function saveStoreProduct(){
     variations:old.variations||[],
     source:Object.assign({},old.source||{},{type:'store_product_import',url,lastStoreKey:storeKey}),
     marketplaceSettings:Object.assign({},oldSettings,{[channel]:Object.assign({},oldSettings[channel]||{},{active:true,salePrice:parseMoneyBR(document.getElementById('store-product-price')?.value)})}),
-    costs:old.costs||{},
+    costs:Object.assign({},old.costs||{},oldUnitCost?{totalUnitCost:oldUnitCost,unitCost:oldUnitCost,totalCost:oldUnitCost}:{}),
     createdAt:old.createdAt||now,updatedAt:now
   });
   try{
@@ -1738,6 +1820,7 @@ function renderErpProducts(){
   };
   const labels={sold:'Mais vendidos',profit:'Mais lucrativos',margin:'Maior margem',lowMargin:'Menor margem',loss:'Prejuízo',slow:'Pouca saída'};
   const rows=[...products].sort(rankers[erpProductRank]||rankers.profit);
+  auditProductCalculations('Produtos',rows);
   const actions=`<button class="btn btn-primary" onclick="openStoreProductImport()">Importar produtos da loja</button><button class="btn btn-secondary" onclick="swTab('calc')">Cadastrar manual</button>`;
   content.innerHTML=`<div class="ref-dashboard jm-page jm-products-page">
     ${jmPageHead('Produtos','Central de produtos','Fotos reais, SKU, itemId, vendas, custos e margem por produto.',actions)}

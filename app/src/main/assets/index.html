@@ -1043,12 +1043,17 @@ function legacyToCatalogProduct(p){
   const now=new Date().toISOString();
   const aliases=Array.isArray(p.aliases)?p.aliases:String(p.aliases||'').split('\n').map(x=>x.trim()).filter(Boolean);
   if(p.name&&!aliases.some(a=>norm(a)===norm(p.name)))aliases.unshift(p.name);
+  const registeredUnitCost=Number(p.totalCost)||Number(p.unitCost)||Number(p.cost)||0;
   return {
     id:productCatalogId(p),
     legacyProductId:p.id||'',
     name:p.name||'Produto sem nome',
     sku:p.sku||'',
     photoUrl:p.photoUrl||p.photo||null,
+    totalCost:registeredUnitCost,
+    unitCost:registeredUnitCost,
+    price:Number(p.price)||0,
+    tiktokPrice:Number(p.tiktokPrice)||Number(p.price)||0,
     description:p.desc||'',
     category:p.category||'',
     notes:p.notes||'',
@@ -1062,6 +1067,9 @@ function legacyToCatalogProduct(p){
     shopIds:p.shopIds||{},
     variations:p.variations||[],
     costs:{
+      totalUnitCost:registeredUnitCost,
+      unitCost:registeredUnitCost,
+      totalCost:registeredUnitCost,
       weightGrams:Number(p.weight)||0,
       printTimeHours:Number(p.printH)||0,
       filamentCostPerKg:cfg.filamentKgPrice||95,
