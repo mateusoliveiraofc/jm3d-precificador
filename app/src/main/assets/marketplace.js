@@ -350,6 +350,258 @@ function findProductMatch(o){
   });
   return bestScore>=35?{product:best,confidence:Math.min(.84,bestScore/100),method:'nome parecido'}:{product:null,confidence:0,method:'none'};
 }
+
+/* Final overrides: product recognition must prioritize real marketplace identity before names. */
+function findProductMatch(o){
+  const catalog=catalogProducts();
+  for(const key of manualRuleKeys(o)){
+    const rule=productMatchRules[key];
+    if(!rule)continue;
+    const p=catalog.find(x=>x.id===rule.productId||x.legacyProductId===rule.productId);
+    if(p)return {product:p,confidence:1,method:'regra permanente'};
+  }
+  const urlInfo=extractOrderUrlInfo(o);
+  const itemId=cleanCell(o.itemId||o.importedItemId||urlInfo.itemId);
+  if(itemId){
+    const p=catalog.find(x=>productHasItemId(x,itemId));
+    if(p)return {product:p,confidence:.99,method:'itemId'};
+  }
+  const sku=norm(o.sku||o.importedSku);
+  if(sku){
+    const p=catalog.find(x=>norm(x.sku)===sku);
+    if(p)return {product:p,confidence:.98,method:'sku'};
+  }
+  const importedUrl=cleanCell(o.importedProductUrl||o.productUrl||urlInfo.url);
+  if(importedUrl){
+    const p=catalog.find(x=>productHasExactUrl(x,importedUrl));
+    if(p)return {product:p,confidence:.96,method:'link do anúncio'};
+  }
+  const shopId=cleanCell(o.shopId||o.importedShopId||urlInfo.shopId);
+  if(shopId&&itemId){
+    const p=catalog.find(x=>productHasShopItem(x,shopId,itemId));
+    if(p)return {product:p,confidence:.95,method:'shopId + itemId'};
+  }
+  const on=norm(o.productName||o.importedProductName);
+  if(on){
+    const exact=catalog.find(p=>norm(p.name)===on);
+    if(exact)return {product:exact,confidence:.88,method:'nome exato'};
+    for(const p of catalog){
+      const aliases=(p.aliases||[]).map(norm).filter(Boolean);
+      if(aliases.some(a=>a===on||on.includes(a)||a.includes(on)))return {product:p,confidence:.84,method:'alias'};
+    }
+  }
+  const importedPhoto=o.importedPhotoUrl||o.photoUrl||'';
+  if(importedPhoto){
+    const sig=photoSignal(importedPhoto);
+    const p=catalog.find(x=>{
+      const photo=x.photoUrl||x.photo||'';
+      return photo&&((photo===importedPhoto)||photoSignal(photo)===sig);
+    });
+    if(p)return {product:p,confidence:.76,method:'foto semelhante'};
+  }
+  if(!on)return {product:null,confidence:0,method:'none'};
+  let best=null,bestScore=0;
+  catalog.forEach(p=>{
+    const pn=norm(p.name);
+    let score=on.includes(pn)||pn.includes(on)?58:0;
+    if(!score){
+      const a=new Set(on.split(' ').filter(x=>x.length>2));
+      const b=new Set(pn.split(' ').filter(x=>x.length>2));
+      const inter=[...a].filter(x=>b.has(x)).length;
+      score=b.size?inter/b.size*52:0;
+    }
+    if(score>bestScore){best=p;bestScore=score;}
+  });
+  return bestScore>=42?{product:best,confidence:Math.min(.70,bestScore/100),method:'nome parecido'}:{product:null,confidence:0,method:'none'};
+}
+function openLinkProductLegacy(orderId){
+  const o=analyzedOrders().find(x=>x.id===orderId)||marketplaceOrders.find(x=>x.id===orderId)||importReview?.orders.find(x=>x.id===orderId);
+  if(!o)return;
+  const catalog=catalogProducts();
+  const suggestions=[...catalog].map(p=>Object.assign({score:linkSuggestionScore(o,p)},p)).sort((a,b)=>b.score-a.score).slice(0,8);
+  openSht('Vincular produto',`<div class="muted-note">Produto importado:<br><b>${esc(o.productName||o.importedProductName||'Produto sem nome')}</b><br>${marketplaceLabel(o.marketplace)} • ${esc(o.store)} • Pedido ${esc(o.orderId)}<br>SKU ${esc(o.sku||o.importedSku||'-')} • Item ${esc(o.itemId||o.importedItemId||'-')} • Recebido ${brl(o.net||0)}</div>
+    <div class="link-suggestion-grid">${suggestions.map(p=>`<button class="link-suggestion" onclick="saveProductLink('${ea(orderId)}','${ea(p.id)}')">${p.photoUrl||p.photo?`<img src="${ea(p.photoUrl||p.photo)}">`:'<div class="ph">📦</div>'}<b>${esc(p.name)}</b><span>SKU ${esc(p.sku||'-')} • Item ${esc(firstMarketplaceId(p)||'-')}<br>${p.score?Math.round(p.score)+'% de confiança':'catálogo'}</span></button>`).join('')}</div>
+    <select class="fi" id="link-product">${catalog.map(p=>`<option value="${ea(p.id)}" ${p.id===o.linkedProductId?'selected':''}>${esc(p.name)}${p.sku?' • '+esc(p.sku):''}</option>`).join('')}</select>
+    <button class="btn btn-save" onclick="saveProductLink('${ea(orderId)}')">Salvar vínculo permanente</button><button class="btn btn-secondary" onclick="openStoreProductImport()">Cadastrar produto da loja</button><button class="btn btn-secondary" onclick="closeSht()">Cancelar</button>`);
+}
+function saveProductLink(orderId,productId){
+  const o=marketplaceOrders.find(x=>x.id===orderId)||importReview?.orders.find(x=>x.id===orderId)||analyzedOrders().find(x=>x.id===orderId);
+  if(!o)return;
+  const selected=productId||document.getElementById('link-product')?.value; if(!selected)return;
+  const p=catalogProducts().find(x=>x.id===selected||x.legacyProductId===selected);
+  const keys=[...new Set(manualRuleKeys(o))];
+  keys.forEach(key=>{productMatchRules[key]={productId:selected,productName:p?.name||'',source:o.productName||o.sku||o.itemId,savedTs:Date.now()};});
+  o.linkedProductId=selected;
+  o.linkedProductName=p?.name||o.linkedProductName||'';
+  o.linkConfidence=1;
+  o.linkMethod='manual permanente';
+  if(matchRulesRef){
+    const updates={}; keys.forEach(key=>updates[key]=sanitizeForFirebase(productMatchRules[key]));
+    matchRulesRef.update(updates).catch(()=>{});
+  }else{
+    localStorage.setItem('jm3d_match_rules',JSON.stringify(productMatchRules));
+  }
+  if(marketplaceOrdersRef&&marketplaceOrders.some(x=>x.id===orderId)){
+    marketplaceOrdersRef.child(orderId).update(sanitizeForFirebase({
+      linkedProductId:selected,
+      linkedProductName:p?.name||'',
+      linkConfidence:1,
+      linkMethod:'manual permanente',
+      updatedAt:new Date().toISOString()
+    })).catch(()=>{});
+  }else{
+    localStorage.setItem('jm3d_market_orders',JSON.stringify(marketplaceOrders));
+  }
+  closeSht();renderContent();
+}
+
+function catalogProductIds(p){
+  return Object.values(p?.marketplaceIds||{}).map(cleanCell).filter(Boolean);
+}
+function catalogProductShopIds(p){
+  return Object.values(p?.shopIds||{}).map(cleanCell).filter(Boolean);
+}
+function catalogProductLinks(p){
+  return Object.values(p?.links||{}).map(cleanCell).filter(Boolean);
+}
+function extractOrderUrlInfo(o){
+  return marketplaceProductUrlInfo(o.importedProductUrl||o.productUrl||o.link||'');
+}
+function productHasItemId(p,itemId){
+  const item=norm(itemId);
+  if(!item)return false;
+  if(catalogProductIds(p).some(id=>norm(id)===item))return true;
+  return catalogProductLinks(p).some(link=>norm(link).includes(item));
+}
+function productHasShopItem(p,shopId,itemId){
+  const shop=norm(shopId), item=norm(itemId);
+  if(!shop||!item)return false;
+  return catalogProductShopIds(p).some(id=>norm(id)===shop)&&productHasItemId(p,item);
+}
+function productHasExactUrl(p,url){
+  const u=norm(url);
+  return !!u&&catalogProductLinks(p).some(link=>norm(link)===u);
+}
+function manualRuleKeys(o){
+  const urlInfo=extractOrderUrlInfo(o);
+  const keys=[
+    o.itemId,o.importedItemId,urlInfo.itemId,
+    o.sku,o.importedSku,
+    o.importedProductUrl,o.productUrl,
+    urlInfo.shopId&&urlInfo.itemId?`${urlInfo.shopId}_${urlInfo.itemId}`:'',
+    o.productName,o.importedProductName
+  ];
+  return keys.filter(Boolean).map(slug);
+}
+function findProductMatch(o){
+  const catalog=catalogProducts();
+  for(const key of manualRuleKeys(o)){
+    const rule=productMatchRules[key];
+    if(!rule)continue;
+    const p=catalog.find(x=>x.id===rule.productId||x.legacyProductId===rule.productId);
+    if(p)return {product:p,confidence:1,method:'regra permanente'};
+  }
+  const urlInfo=extractOrderUrlInfo(o);
+  const itemId=cleanCell(o.itemId||o.importedItemId||urlInfo.itemId);
+  if(itemId){
+    const p=catalog.find(x=>productHasItemId(x,itemId));
+    if(p)return {product:p,confidence:.99,method:'itemId'};
+  }
+  const sku=norm(o.sku||o.importedSku);
+  if(sku){
+    const p=catalog.find(x=>norm(x.sku)===sku);
+    if(p)return {product:p,confidence:.98,method:'sku'};
+  }
+  const importedUrl=cleanCell(o.importedProductUrl||o.productUrl||urlInfo.url);
+  if(importedUrl){
+    const p=catalog.find(x=>productHasExactUrl(x,importedUrl));
+    if(p)return {product:p,confidence:.96,method:'link do anúncio'};
+  }
+  const shopId=cleanCell(o.shopId||o.importedShopId||urlInfo.shopId);
+  if(shopId&&itemId){
+    const p=catalog.find(x=>productHasShopItem(x,shopId,itemId));
+    if(p)return {product:p,confidence:.95,method:'shopId + itemId'};
+  }
+  const on=norm(o.productName||o.importedProductName);
+  if(on){
+    const exact=catalog.find(p=>norm(p.name)===on);
+    if(exact)return {product:exact,confidence:.88,method:'nome exato'};
+    for(const p of catalog){
+      const aliases=(p.aliases||[]).map(norm).filter(Boolean);
+      if(aliases.some(a=>a===on||on.includes(a)||a.includes(on)))return {product:p,confidence:.84,method:'alias'};
+    }
+  }
+  const importedPhoto=o.importedPhotoUrl||o.photoUrl||'';
+  if(importedPhoto){
+    const sig=photoSignal(importedPhoto);
+    const p=catalog.find(x=>{
+      const photo=x.photoUrl||x.photo||'';
+      return photo&&((photo===importedPhoto)||photoSignal(photo)===sig);
+    });
+    if(p)return {product:p,confidence:.76,method:'foto semelhante'};
+  }
+  if(!on)return {product:null,confidence:0,method:'none'};
+  let best=null,bestScore=0;
+  catalog.forEach(p=>{
+    const pn=norm(p.name);
+    let score=on.includes(pn)||pn.includes(on)?58:0;
+    if(!score){
+      const a=new Set(on.split(' ').filter(x=>x.length>2));
+      const b=new Set(pn.split(' ').filter(x=>x.length>2));
+      const inter=[...a].filter(x=>b.has(x)).length;
+      score=b.size?inter/b.size*52:0;
+    }
+    if(score>bestScore){best=p;bestScore=score;}
+  });
+  return bestScore>=42?{product:best,confidence:Math.min(.70,bestScore/100),method:'nome parecido'}:{product:null,confidence:0,method:'none'};
+}
+function linkSuggestionScore(order,p){
+  const direct=findProductMatch(Object.assign({},order,{itemId:order.itemId||order.importedItemId,sku:order.sku||order.importedSku}));
+  if(direct.product&&(direct.product.id===p.id||direct.product.legacyProductId===p.id))return direct.confidence*100;
+  const on=norm(order.productName||order.importedProductName), pn=norm(p.name);
+  const alias=(p.aliases||[]).some(a=>on&&norm(a)&&on.includes(norm(a)));
+  return alias?70:(on&&pn&&on.includes(pn)?55:0);
+}
+function openLinkProduct(orderId){
+  const o=analyzedOrders().find(x=>x.id===orderId)||marketplaceOrders.find(x=>x.id===orderId)||importReview?.orders.find(x=>x.id===orderId);
+  if(!o)return;
+  const catalog=catalogProducts();
+  const suggestions=[...catalog].map(p=>Object.assign({score:linkSuggestionScore(o,p)},p)).sort((a,b)=>b.score-a.score).slice(0,8);
+  openSht('Vincular produto',`<div class="muted-note">Produto importado:<br><b>${esc(o.productName||o.importedProductName||'Produto sem nome')}</b><br>${marketplaceLabel(o.marketplace)} • ${esc(o.store)} • Pedido ${esc(o.orderId)}<br>SKU ${esc(o.sku||o.importedSku||'-')} • Item ${esc(o.itemId||o.importedItemId||'-')} • Recebido ${brl(o.net||0)}</div>
+    <div class="link-suggestion-grid">${suggestions.map(p=>`<button class="link-suggestion" onclick="saveProductLink('${ea(orderId)}','${ea(p.id)}')">${p.photoUrl||p.photo?`<img src="${ea(p.photoUrl||p.photo)}">`:'<div class="ph">📦</div>'}<b>${esc(p.name)}</b><span>SKU ${esc(p.sku||'-')} • Item ${esc(firstMarketplaceId(p)||'-')}<br>${p.score?Math.round(p.score)+'% de confiança':'catálogo'}</span></button>`).join('')}</div>
+    <select class="fi" id="link-product">${catalog.map(p=>`<option value="${ea(p.id)}" ${p.id===o.linkedProductId?'selected':''}>${esc(p.name)}${p.sku?' • '+esc(p.sku):''}</option>`).join('')}</select>
+    <button class="btn btn-save" onclick="saveProductLink('${ea(orderId)}')">Salvar vínculo permanente</button><button class="btn btn-secondary" onclick="openStoreProductImport()">Cadastrar produto da loja</button><button class="btn btn-secondary" onclick="closeSht()">Cancelar</button>`);
+}
+function saveProductLink(orderId,productId){
+  const o=marketplaceOrders.find(x=>x.id===orderId)||importReview?.orders.find(x=>x.id===orderId)||analyzedOrders().find(x=>x.id===orderId);
+  if(!o)return;
+  const selected=productId||document.getElementById('link-product')?.value; if(!selected)return;
+  const p=catalogProducts().find(x=>x.id===selected||x.legacyProductId===selected);
+  const keys=[...new Set(manualRuleKeys(o))];
+  keys.forEach(key=>{productMatchRules[key]={productId:selected,productName:p?.name||'',source:o.productName||o.sku||o.itemId,savedTs:Date.now()};});
+  o.linkedProductId=selected;
+  o.linkedProductName=p?.name||o.linkedProductName||'';
+  o.linkConfidence=1;
+  o.linkMethod='manual permanente';
+  if(matchRulesRef){
+    const updates={}; keys.forEach(key=>updates[key]=sanitizeForFirebase(productMatchRules[key]));
+    matchRulesRef.update(updates).catch(()=>{});
+  }else{
+    localStorage.setItem('jm3d_match_rules',JSON.stringify(productMatchRules));
+  }
+  if(marketplaceOrdersRef&&marketplaceOrders.some(x=>x.id===orderId)){
+    marketplaceOrdersRef.child(orderId).update(sanitizeForFirebase({
+      linkedProductId:selected,
+      linkedProductName:p?.name||'',
+      linkConfidence:1,
+      linkMethod:'manual permanente',
+      updatedAt:new Date().toISOString()
+    })).catch(()=>{});
+  }else{
+    localStorage.setItem('jm3d_market_orders',JSON.stringify(marketplaceOrders));
+  }
+  closeSht();renderContent();
+}
 function findProductForOrder(o){
   return findProductMatch(o).product;
 }
@@ -651,12 +903,12 @@ function renderOrderCard(o){
     <div class="chips"><span class="chip c-price">Líquido ${brl(o.net)}</span><span class="chip c-cost">Custo ${brl(o.totalCost)}</span><span class="chip c-pct">Lucro ${brl(o.profit)} (${pct(o.margin)})</span></div>
     <div class="muted-note">Vínculo: ${o.linkedProductName?esc(o.linkedProductName):'<b>produto não vinculado</b>'}</div><button class="btn btn-secondary" style="font-size:12px;padding:9px" onclick="openLinkProduct('${o.id}')">Vincular produto importado</button></div>`;
 }
-function openLinkProduct(orderId){
+function openLinkProductLegacyOrdersFinal(orderId){
   const o=analyzedOrders().find(x=>x.id===orderId); if(!o)return;
   const catalog=typeof mergedProductCatalog==='function'?mergedProductCatalog():localProducts;
   openSht('Vincular produto',`<div class="muted-note">Produto no relatório:<br><b>${esc(o.productName)}</b><br>SKU/item: ${esc(o.sku||o.itemId||'-')}</div><select class="fi" id="link-product">${catalog.map(p=>`<option value="${p.id}" ${p.id===o.linkedProductId?'selected':''}>${esc(p.name)}${p.sku?' • '+esc(p.sku):''}</option>`).join('')}</select><button class="btn btn-save" onclick="saveProductLink('${o.id}')">Salvar vínculo permanente</button><button class="btn btn-secondary" onclick="closeSht()">Cancelar</button>`);
 }
-function saveProductLink(orderId){
+function saveProductLinkLegacy(orderId){
   const o=marketplaceOrders.find(x=>x.id===orderId)||importReview?.orders.find(x=>x.id===orderId); if(!o)return;
   const productId=document.getElementById('link-product')?.value; if(!productId)return;
   const keys=[o.sku,o.itemId,o.productName].filter(Boolean).map(slug);
@@ -715,6 +967,7 @@ function exportAnalysisCsv(){
 var erpProductRank='profit';
 var erpPricingPrice=39.90;
 var erpPricingProductId='';
+var storeProductDraft=null;
 
 function erpPeriodOptions(){
   return [
@@ -804,6 +1057,7 @@ function erpTopMarketplace(orders){
 function erpCard(icon,label,value,cls='info',hint=''){
   return `<div class="erp-card ${cls}"><div class="ico">${icon}</div><div class="lbl">${label}</div><div class="val">${value}</div>${hint?`<div class="hint">${hint}</div>`:''}</div>`;
 }
+function catalogProducts(){return typeof mergedProductCatalog==='function'?mergedProductCatalog():localProducts;}
 function erpFilters(){
   return `<div class="erp-section"><div class="erp-pills">${erpPeriodOptions().map(([id,label])=>`<button class="${analysisFilters.period===id?'on':''}" onclick="analysisFilters.period='${id}';renderContent()">${label}</button>`).join('')}</div>
   ${analysisFilters.period==='custom'?`<div class="filter-row" style="margin-top:10px"><input class="fi" type="date" value="${analysisFilters.from}" onchange="analysisFilters.from=this.value;renderContent()"><input class="fi" type="date" value="${analysisFilters.to}" onchange="analysisFilters.to=this.value;renderContent()"></div>`:''}
@@ -838,7 +1092,7 @@ function renderFinanceiroView(){
     </section>
     <section class="erp-section"><h3>Campeões do período <small>decisão rápida</small></h3>
       <div class="erp-grid">
-        ${erpCard('🏆','Produto campeão',bestProduct?esc(bestProduct.name):'Sem dados','good',bestProduct?`${bestProduct.qty} vendas • ${brl(bestProduct.profit)} de lucro`:'Importe relatórios para descobrir.')}
+        ${renderChampionProduct(bestProduct)}
         ${erpCard('🏬','Loja campeã',bestStore?esc(bestStore.name):'Sem dados','info',bestStore?`${bestStore.orders} pedidos • ${brl(bestStore.profit)} de lucro`:'')}
         ${erpCard('🛒','Marketplace campeão',bestMarketplace?marketplaceLabel(bestMarketplace.name):'Sem dados','info',bestMarketplace?`${brl(bestMarketplace.net)} recebidos`:'' )}
         ${erpCard('⚠','Produtos sem vínculo',String(s.unlinked),s.unlinked?'warn':'good',s.unlinked?'Corrija vínculos para melhorar custos.':'Tudo vinculado no período.')}
@@ -848,6 +1102,13 @@ function renderFinanceiroView(){
     <section class="erp-section"><h3>Comparação entre lojas <small>performance real</small></h3>${renderStoreComparison(orders)}</section>
     <section class="erp-section"><h3>Alertas de negócio <small>o que agir primeiro</small></h3>${renderBusinessAlerts(orders)}</section>
     <button class="btn btn-export" onclick="exportAnalysisCsv()">Exportar CSV da análise</button>
+  </div>`;
+}
+function renderChampionProduct(p){
+  if(!p)return erpCard('🏆','Produto campeão','Sem dados','good','Importe relatórios para descobrir.');
+  return `<div class="erp-product-card" style="margin:0;grid-template-columns:74px 1fr">
+    ${p.photo?`<img class="erp-product-img" style="width:74px;height:74px" src="${p.photo}">`:'<div class="erp-product-fallback" style="width:74px;height:74px">🏆</div>'}
+    <div><div class="erp-eyebrow">Produto campeão</div><div class="erp-product-name">${esc(p.name)}</div><div class="erp-product-meta">${p.qty} vendas • ${brl(p.profit)} lucro • margem ${pct(p.margin)}</div><div class="badge-row"><span class="biz-badge good">Mais lucrativo</span></div></div>
   </div>`;
 }
 function reserveRow(label,value){return `<div class="reserve-row"><span>${label}</span><b>${brl(value)}</b></div>`;}
@@ -902,12 +1163,12 @@ function renderBusinessAlerts(orders){
   return `<div class="alert-list">${items.map(([cls,title,body])=>`<div class="alert-item"><b>${title}</b><span class="${cls}">${esc(body)}</span></div>`).join('')}</div>`;
 }
 function productPerformance(orders=filteredOrders()){
-  const catalog=typeof mergedProductCatalog==='function'?mergedProductCatalog():localProducts;
+  const catalog=catalogProducts();
   const byId={};
   orders.forEach(o=>{
     const id=o.linkedProductId||slug(o.linkedProductName||o.productName||'sem_vinculo');
     const product=catalog.find(p=>p.id===id||p.legacyProductId===id)||{};
-    byId[id]=byId[id]||{id,name:o.linkedProductName||o.productName||product.name||'Produto não vinculado',sku:product.sku||o.sku||'',category:product.category||'',photo:product.photoUrl||product.photo||'',qty:0,orders:0,gross:0,net:0,cost:0,profit:0,margin:0,mainMarketplace:'',marketplaces:{}};
+    byId[id]=byId[id]||{id,name:o.linkedProductName||product.name||o.productName||'Produto não vinculado',sku:product.sku||o.sku||'',itemId:o.itemId||o.importedItemId||firstMarketplaceId(product)||'',category:product.category||'',photo:product.photoUrl||product.photo||o.importedPhotoUrl||'',linked:!!o.linkedProductId,qty:0,orders:0,gross:0,net:0,cost:0,profit:0,margin:0,mainMarketplace:'',marketplaces:{}};
     const p=byId[id], qty=Number(o.qty)||1, m=marketplaceFilterValue(o.marketplace);
     p.qty+=qty; p.orders++; p.gross+=Number(o.gross)||0; p.net+=Number(o.net)||0; p.cost+=Number(o.totalCost)||0; p.profit+=Number(o.profit)||0;
     p.marketplaces[m]=(p.marketplaces[m]||0)+(Number(o.profit)||0);
@@ -916,7 +1177,22 @@ function productPerformance(orders=filteredOrders()){
     p.margin=p.net?p.profit/p.net*100:0;
     p.mainMarketplace=Object.keys(p.marketplaces).sort((a,b)=>p.marketplaces[b]-p.marketplaces[a])[0]||'-';
   });
+  catalog.forEach(product=>{
+    const id=product.id||product.legacyProductId;
+    if(!id||byId[id])return;
+    byId[id]={id,name:product.name||'Produto sem nome',sku:product.sku||'',itemId:firstMarketplaceId(product),category:product.category||'',photo:product.photoUrl||product.photo||'',linked:true,qty:0,orders:0,gross:0,net:0,cost:0,profit:0,margin:0,mainMarketplace:mainMarketplaceFromProduct(product),marketplaces:{}};
+  });
   return Object.values(byId);
+}
+function firstMarketplaceId(p){
+  const ids=p?.marketplaceIds||{};
+  return ids.shopee_kaline98||ids.shopee_mateusoliver98||ids.tiktokShop||ids.shopee||'';
+}
+function mainMarketplaceFromProduct(p){
+  const links=p?.links||{};
+  if(links.tiktokShop)return 'tiktokShop';
+  if(links.shopee_kaline98||links.shopee_mateusoliver98)return 'shopee';
+  return '-';
 }
 function renderErpProducts(){
   const content=document.getElementById('content'); if(!content)return;
@@ -927,10 +1203,11 @@ function renderErpProducts(){
   };
   const labels={sold:'Mais vendidos',profit:'Mais lucrativos',margin:'Maior margem',lowMargin:'Menor margem',loss:'Prejuízo',slow:'Pouca saída'};
   const rows=[...products].sort(rankers[erpProductRank]||rankers.profit);
-  content.innerHTML=`<div class="erp-shell">${erpFilters()}<section class="erp-section"><h3>Produtos <small>${rows.length} analisados</small></h3>
+  content.innerHTML=`<div class="erp-shell">${erpFilters()}<section class="erp-section"><h3>Produtos <small>${rows.length} no catálogo</small></h3>
+    <div class="compact-actions" style="margin-bottom:10px"><button class="btn btn-primary" onclick="openStoreProductImport()">Importar produtos da loja</button><button class="btn btn-secondary" onclick="swTab('calc')">Cadastrar manual</button></div>
     <div class="product-rank-tabs">${Object.keys(labels).map(k=>`<button class="${erpProductRank===k?'on':''}" onclick="erpProductRank='${k}';renderErpProducts()">${labels[k]}</button>`).join('')}</div>
     ${rows.length?rows.map(renderErpProductCard).join(''):'<div class="empty"><div class="ei">📦</div><div>Importe relatórios para ver performance por produto.</div></div>'}
-  </section><button class="btn btn-primary" onclick="swTab('calc')">Cadastrar produto / abrir calculadora</button></div>`;
+  </section>${renderUnlinkedOrdersPanel(filteredOrders())}</div>`;
 }
 function renderErpProductCard(p){
   const h=erpHealth(p.margin,p.profit);
@@ -939,13 +1216,19 @@ function renderErpProductCard(p){
   if(p.profit>0&&p.margin>=45)badges.push(['good','⭐ Excelente']);
   if(p.margin<20)badges.push(['warn','⚠ Margem baixa']);
   if(p.profit<0)badges.push(['bad','📉 Prejuízo']);
+  if(!p.linked)badges.push(['bad','Sem vínculo']);
   if(!p.sku)badges.push(['warn','Sem SKU']);
   return `<div class="erp-product-card" onclick="openProductDashboard('${ea(p.id)}')">
     ${p.photo?`<img class="erp-product-img" src="${p.photo}">`:'<div class="erp-product-fallback">📦</div>'}
-    <div><div class="erp-product-name">${esc(p.name)}</div><div class="erp-product-meta">${p.qty} vendas • ${marketplaceLabel(p.mainMarketplace)} • ${esc(p.sku||'SKU não cadastrado')}</div>
+    <div><div class="erp-product-name">${esc(p.name)}</div><div class="erp-product-meta">${marketplaceLabel(p.mainMarketplace)} • SKU ${esc(p.sku||'-')} • Item ${esc(p.itemId||'-')}<br>${p.qty} vendas</div>
     <div class="erp-product-numbers"><div><span>Recebido</span><b>${brl(p.net)}</b></div><div><span>Custou</span><b>${brl(p.cost)}</b></div><div><span>Lucro</span><b>${brl(p.profit)}</b></div><div><span>Margem</span><b>${pct(p.margin)}</b></div></div>
     <div class="badge-row"><span class="biz-badge ${h.cls}">${h.label}</span>${badges.map(([cls,b])=>`<span class="biz-badge ${cls}">${b}</span>`).join('')}</div></div>
   </div>`;
+}
+function renderUnlinkedOrdersPanel(orders){
+  const unlinked=orders.filter(o=>!o.linkedProductId).slice(0,8);
+  if(!unlinked.length)return '';
+  return `<section class="erp-section"><h3>Produtos sem vínculo <small>${unlinked.length} pendentes</small></h3>${unlinked.map(o=>`<div class="order-card"><div class="order-top"><div><div class="order-title">${esc(o.productName||o.importedProductName||'Produto sem nome')}</div><div class="order-meta">${marketplaceLabel(o.marketplace)} • ${esc(o.store)} • Pedido ${esc(o.orderId)} • Item ${esc(o.itemId||o.importedItemId||'-')}</div></div><span class="health warn">${brl(o.net)}</span></div><button class="btn btn-secondary" style="font-size:12px;padding:9px" onclick="openLinkProduct('${o.id}')">Vincular</button></div>`).join('')}</section>`;
 }
 function openProductDashboard(id){
   const p=productPerformance(filteredOrders()).find(x=>x.id===id); if(!p)return;
@@ -1044,12 +1327,150 @@ function saveMarketCfgUI(){
   }));
   setSyncStatus('ok','✅ Custos globais salvos');renderContent();
 }
+function marketplaceProductUrlInfo(rawUrl){
+  const info={url:cleanCell(rawUrl),marketplace:'',store:'',storeKey:'',itemId:'',shopId:'',price:0};
+  if(!info.url)return info;
+  try{
+    const u=new URL(info.url);
+    const host=norm(u.hostname);
+    const pathParts=u.pathname.split('/').filter(Boolean).map(x=>decodeURIComponent(x));
+    const search=u.searchParams;
+    if(host.includes('shopee')){
+      info.marketplace='shopee';
+      info.itemId=cleanCell(search.get('itemId')||search.get('itemid')||'');
+      info.shopId=cleanCell(search.get('shopId')||search.get('shopid')||'');
+      const path=decodeURIComponent(u.pathname);
+      const iMatch=path.match(/(?:^|[.\-/])i[.\-/](\d+)[.\-/](\d+)/i)||path.match(/(\d{5,})[.\-/](\d{5,})$/);
+      if(iMatch){info.shopId=info.shopId||iMatch[1];info.itemId=info.itemId||iMatch[2];}
+      const storeName=(pathParts[0]||'').replace(/^@/,'');
+      info.store=storeName||'Shopee';
+      if(norm(storeName).includes('kaline'))info.storeKey='shopee_kaline98';
+      else if(norm(storeName).includes('mateus'))info.storeKey='shopee_mateusoliver98';
+      else info.storeKey='shopee';
+    }else if(host.includes('tiktok')){
+      info.marketplace='tiktokShop';
+      info.store='TikTok Shop';
+      info.storeKey='tiktokShop';
+      info.itemId=cleanCell(search.get('itemId')||search.get('item_id')||pathParts.find(p=>/^\d{6,}$/.test(p))||'');
+      info.shopId=cleanCell(search.get('shopId')||search.get('shop_id')||'');
+    }
+  }catch(e){}
+  return info;
+}
+function automaticAliases(name,sku,itemId){
+  const base=[name,sku,itemId].filter(Boolean).map(cleanCell);
+  const words=norm(name).split(' ').filter(w=>w.length>3);
+  for(let i=2;i<=Math.min(5,words.length);i++)base.push(words.slice(0,i).join(' '));
+  return [...new Set(base.filter(Boolean))];
+}
+async function inspectStoreProductUrl(){
+  const url=document.getElementById('store-product-url')?.value||'';
+  const info=marketplaceProductUrlInfo(url);
+  storeProductDraft=Object.assign({},storeProductDraft||{},info);
+  const status=document.getElementById('store-product-status');
+  if(status)status.textContent='Analisando link...';
+  try{
+    const res=await fetch(url,{mode:'cors',credentials:'omit'});
+    const html=await res.text();
+    const meta=(prop)=>{
+      const re=new RegExp(`<meta[^>]+(?:property|name)=["']${prop}["'][^>]+content=["']([^"']+)["']`,'i');
+      return cleanCell((html.match(re)||[])[1]||'');
+    };
+    storeProductDraft.name=meta('og:title')||storeProductDraft.name||'';
+    storeProductDraft.photoUrl=meta('og:image')||storeProductDraft.photoUrl||'';
+    storeProductDraft.price=parseMoneyBR(meta('product:price:amount')||meta('og:price:amount'));
+    fillStoreProductForm(storeProductDraft);
+    if(status)status.textContent='Dados encontrados. Revise antes de salvar.';
+  }catch(e){
+    fillStoreProductForm(storeProductDraft);
+    if(status)status.textContent='A Shopee pode bloquear captura automática. Preencha/revise manualmente e salve com link, foto e itemId.';
+  }
+}
+function fillStoreProductForm(d){
+  const set=(id,v)=>{const el=document.getElementById(id);if(el&&v!==undefined)el.value=v||'';};
+  set('store-product-name',d.name);
+  set('store-product-sku',d.sku);
+  set('store-product-item',d.itemId);
+  set('store-product-shop',d.shopId);
+  set('store-product-photo',d.photoUrl);
+  set('store-product-price',d.price||'');
+  const store=document.getElementById('store-product-store'); if(store&&d.storeKey)store.value=d.storeKey;
+}
+function onStoreProductPhotoSelected(ev){
+  const f=ev.target.files&&ev.target.files[0]; if(!f)return;
+  const rd=new FileReader();
+  rd.onload=()=>{storeProductDraft=Object.assign({},storeProductDraft||{},{photoUrl:rd.result});fillStoreProductForm(storeProductDraft);};
+  rd.readAsDataURL(f);
+}
+function openStoreProductImport(){
+  storeProductDraft={};
+  openSht('Importar produto da loja',`<div class="muted-note">Cole um link da Shopee/TikTok ou cadastre manualmente. O catálogo salvo usa itemId, SKU, link e foto para vincular pedidos sem depender só do nome.</div>
+    <label class="fl">Link da loja ou anúncio</label><input class="fi" id="store-product-url" placeholder="https://shopee.com.br/...itemId=..." oninput="storeProductDraft=Object.assign({},storeProductDraft||{},marketplaceProductUrlInfo(this.value))">
+    <div class="compact-actions"><button class="btn btn-primary" onclick="inspectStoreProductUrl()">Tentar capturar dados</button><button class="btn btn-secondary" onclick="document.getElementById('store-photo-file').click()">Anexar foto</button></div>
+    <input type="file" id="store-photo-file" accept="image/*" style="display:none" onchange="onStoreProductPhotoSelected(event)">
+    <div class="muted-note" id="store-product-status">Se a captura for bloqueada, preencha os campos abaixo.</div>
+    <label class="fl">Nome real do anúncio</label><input class="fi" id="store-product-name" placeholder="Nome real do produto">
+    <div class="filter-row"><input class="fi" id="store-product-sku" placeholder="SKU"><input class="fi" id="store-product-item" placeholder="ItemId do anúncio"></div>
+    <div class="filter-row"><input class="fi" id="store-product-shop" placeholder="ShopId"><input class="fi" id="store-product-price" type="number" placeholder="Preço anunciado"></div>
+    <label class="fl">Foto principal</label><input class="fi" id="store-product-photo" placeholder="URL da foto ou anexe uma imagem">
+    <label class="fl">Loja</label><select class="fi" id="store-product-store"><option value="shopee_kaline98">Shopee _kaline98</option><option value="shopee_mateusoliver98">Shopee mateusoliver98</option><option value="tiktokShop">TikTok Shop</option><option value="shopee">Shopee genérica</option></select>
+    <label class="fl">Aliases</label><textarea class="fi" id="store-product-aliases" rows="3" placeholder="Um alias por linha"></textarea>
+    <button class="btn btn-save" onclick="saveStoreProduct()">Salvar no catálogo</button><button class="btn btn-secondary" onclick="closeSht()">Cancelar</button>`);
+}
+async function saveStoreProduct(){
+  const url=cleanCell(document.getElementById('store-product-url')?.value);
+  const info=Object.assign({},marketplaceProductUrlInfo(url),storeProductDraft||{});
+  const name=cleanCell(document.getElementById('store-product-name')?.value);
+  const sku=cleanCell(document.getElementById('store-product-sku')?.value);
+  const itemId=cleanCell(document.getElementById('store-product-item')?.value||info.itemId);
+  const shopId=cleanCell(document.getElementById('store-product-shop')?.value||info.shopId);
+  const photoUrl=cleanCell(document.getElementById('store-product-photo')?.value||info.photoUrl);
+  const storeKey=document.getElementById('store-product-store')?.value||info.storeKey||'shopee';
+  const aliasesManual=String(document.getElementById('store-product-aliases')?.value||'').split('\n').map(cleanCell).filter(Boolean);
+  if(!name){alert('Informe o nome real do anúncio.');return;}
+  if(!photoUrl){alert('Informe ou anexe a foto principal do produto.');return;}
+  if(!sku&&!itemId&&!url){alert('Informe SKU, itemId ou link do anúncio para reconhecer pedidos automaticamente.');return;}
+  const links={}, marketplaceIds={}, shopIds={};
+  if(url)links[storeKey]=url;
+  if(itemId)marketplaceIds[storeKey]=itemId;
+  if(shopId)shopIds[storeKey]=shopId;
+  const now=new Date().toISOString();
+  const id='prod_'+slug(sku||itemId||name);
+  const old=(catalogProducts().find(p=>p.id===id)||{});
+  const channel=storeKey.startsWith('tiktok')?'tiktokShop':'shopee';
+  const oldSettings=old.marketplaceSettings||{};
+  const product=Object.assign({},old,{
+    id,name,sku:sku||old.sku||'',photoUrl:photoUrl||old.photoUrl||old.photo||'',category:old.category||'',
+    notes:old.notes||'Produto importado/cadastrado a partir da loja.',
+    aliases:[...new Set([...(old.aliases||[]),...automaticAliases(name,sku,itemId),...aliasesManual])],
+    links:Object.assign({},old.links||{},links),
+    marketplaceIds:Object.assign({},old.marketplaceIds||{},marketplaceIds),
+    shopIds:Object.assign({},old.shopIds||{},shopIds),
+    variations:old.variations||[],
+    source:Object.assign({},old.source||{},{type:'store_product_import',url,lastStoreKey:storeKey}),
+    marketplaceSettings:Object.assign({},oldSettings,{[channel]:Object.assign({},oldSettings[channel]||{},{active:true,salePrice:parseMoneyBR(document.getElementById('store-product-price')?.value)})}),
+    costs:old.costs||{},
+    createdAt:old.createdAt||now,updatedAt:now
+  });
+  try{
+    if(productCatalogRef)await productCatalogRef.child(product.id).set(sanitizeForFirebase(product));
+    productCatalog=[product,...productCatalog.filter(p=>p.id!==product.id)];
+    localStorage.setItem('jm3d_product_catalog',JSON.stringify(productCatalog));
+    setSyncStatus('ok','Produto da loja salvo no catálogo');
+    closeSht();renderContent();
+  }catch(e){
+    productCatalog=[product,...productCatalog.filter(p=>p.id!==product.id)];
+    localStorage.setItem('jm3d_product_catalog',JSON.stringify(productCatalog));
+    setSyncStatus('err','Produto salvo localmente. Firebase será sincronizado quando possível.');
+    closeSht();renderContent();
+  }
+}
 function photoSignal(v){
   const s=String(v||'');
   if(!s)return '';
   return slug(s.replace(/^data:image\/[^;]+;base64,/,'').slice(0,160)+'_'+s.length);
 }
-function findProductMatch(o){
+function findProductMatchLegacyFinal(o){
   const catalog=typeof mergedProductCatalog==='function'?mergedProductCatalog():localProducts;
   const rule=productMatchRules[slug(o.sku||o.productName)]||productMatchRules[slug(o.itemId||'')]||productMatchRules[slug(o.productName)];
   if(rule){
