@@ -1277,18 +1277,36 @@ function renderBusinessAlerts(orders){
   return `<div class="alert-list alert-action-list">${cards.map(c=>`<div class="alert-item action ${c.cls}"><div><b>${esc(c.title)}</b><span>${esc(c.body)}</span></div>${c.action}</div>`).join('')}</div>`;
 }
 function refFilters(){
-  return `<div class="ref-filterbar"><div class="ref-pills">${erpPeriodOptions().map(([id,label])=>`<button class="${analysisFilters.period===id?'on':''}" onclick="analysisFilters.period='${id}';renderContent()">${label}</button>`).join('')}</div>
+  return `<div class="ref-filterbar"><div class="ref-searchbar"><input class="fi" placeholder="Buscar produto, pedido, SKU ou item..." value="${ea(analysisFilters.q)}" oninput="analysisFilters.q=this.value;renderContent()" autocomplete="off"><button class="btn btn-secondary" onclick="analysisFilters.q='';renderContent()">Limpar</button></div>
+  <div class="ref-pills">${erpPeriodOptions().map(([id,label])=>`<button class="${analysisFilters.period===id?'on':''}" onclick="analysisFilters.period='${id}';renderContent()">${label}</button>`).join('')}</div>
   <div class="ref-pills">${erpStores().map(([id,label])=>`<button class="${analysisFilters.store===id?'on':''}" onclick="analysisFilters.store='${id}';renderContent()">${label}</button>`).join('')}</div>
   ${analysisFilters.period==='custom'?`<div class="ref-dates"><input class="fi" type="date" value="${analysisFilters.from}" onchange="analysisFilters.from=this.value;renderContent()"><input class="fi" type="date" value="${analysisFilters.to}" onchange="analysisFilters.to=this.value;renderContent()"></div>`:''}</div>`;
 }
 function refSparkline(values,color='#00C2FF',fill=false){
   const data=(values||[]).map(Number).filter(Number.isFinite);
-  if(!data.length)return '<svg class="ref-spark" viewBox="0 0 120 40"><path d="M0 30 L25 24 L45 28 L70 15 L92 22 L120 10" fill="none" stroke="#00C2FF" stroke-width="3"/></svg>';
-  const w=120,h=40,min=Math.min(...data),max=Math.max(...data),span=max-min||1;
-  const pts=data.map((v,i)=>`${i*(w/Math.max(1,data.length-1))},${h-5-((v-min)/span)*(h-12)}`);
-  const d=pts.map((p,i)=>(i?'L':'M')+p).join(' ');
-  const fillPath=`${d} L ${w},${h} L 0,${h} Z`;
-  return `<svg class="ref-spark" viewBox="0 0 ${w} ${h}">${fill?`<path d="${fillPath}" fill="${color}" opacity=".16"/>`:''}<path d="${d}" fill="none" stroke="${color}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  const w=150,h=54,left=4,right=4,top=7,bottom=8, id='spark'+Math.random().toString(36).slice(2,8);
+  const fallback=[18,16,20,14,28,31,26,36,33,43];
+  const series=data.length?data:fallback;
+  const min=Math.min(...series,0),max=Math.max(...series,1),span=max-min||1;
+  const points=series.map((v,i)=>({
+    x:left+(series.length===1?0:i*(w-left-right)/(series.length-1)),
+    y:h-bottom-((v-min)/span)*(h-top-bottom)
+  }));
+  const line=jmSmoothPath(points);
+  const area=`${line} L ${points[points.length-1].x.toFixed(1)} ${h-bottom} L ${points[0].x.toFixed(1)} ${h-bottom} Z`;
+  const markerEvery=Math.max(1,Math.floor(points.length/4));
+  return `<svg class="ref-spark ref-spark-premium" viewBox="0 0 ${w} ${h}" aria-hidden="true">
+    <defs>
+      <linearGradient id="${id}Area" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="${color}" stop-opacity=".34"/><stop offset=".72" stop-color="${color}" stop-opacity=".10"/><stop offset="1" stop-color="${color}" stop-opacity="0"/></linearGradient>
+      <linearGradient id="${id}Line" x1="0" x2="1" y1="0" y2="0"><stop offset="0" stop-color="#3B82F6"/><stop offset=".48" stop-color="${color}"/><stop offset="1" stop-color="#22D3EE"/></linearGradient>
+    </defs>
+    <line class="spark-grid" x1="${left}" y1="${top+8}" x2="${w-right}" y2="${top+8}"/>
+    <line class="spark-grid" x1="${left}" y1="${top+22}" x2="${w-right}" y2="${top+22}"/>
+    <line class="spark-grid" x1="${left}" y1="${top+36}" x2="${w-right}" y2="${top+36}"/>
+    ${fill?`<path d="${area}" fill="url(#${id}Area)"/>`:''}
+    <path class="spark-line" d="${line}" fill="none" stroke="url(#${id}Line)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+    ${points.filter((_,i)=>i%markerEvery===0||i===points.length-1).map(p=>`<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="2.6" fill="#22D3EE" stroke="#0B0F14" stroke-width="1.6"/>`).join('')}
+  </svg>`;
 }
 function refBars(values){
   const data=(values||[]).map(v=>Math.max(0,Number(v)||0)).slice(-10), max=Math.max(...data,1);
@@ -1307,12 +1325,14 @@ function refTopSummary(orders,s,available,margin){
       <div class="ref-label">Lucro livre</div>
       <div class="ref-money green">${brl(s.profit)}</div>
       ${refSparkline(profitSeries,'#00C2FF',true)}
+      <div class="spark-caption"><i style="background:#00C2FF"></i>Evolucao do lucro</div>
       <div class="ref-summary-foot"><span>Caiu na sua conta:<b>${brl(s.net)}</b></span><span>Pedidos:<b>${orders.length}</b></span></div>
     </div>
     <div class="ref-summary-block available">
       <div class="ref-label">Dinheiro disponível</div>
       <div class="ref-money">${brl(available)}</div>
       ${refSparkline(netSeries,'#3B82F6',true)}
+      <div class="spark-caption"><i style="background:#3B82F6"></i>Evolucao do recebido</div>
       <div class="ref-summary-foot"><span>Margem real:<b>${pct(margin)}</b></span><span>Produtos:<b>${s.qty}</b></span></div>
     </div>
     <div class="ref-summary-visual">${refBars(netSeries.length?netSeries:[15,35,54,78,41,70,46,65])}</div>
@@ -1478,7 +1498,9 @@ function renderErpProducts(){
     lowMargin:(a,b)=>a.margin-b.margin, loss:(a,b)=>a.profit-b.profit, slow:(a,b)=>a.qty-b.qty
   };
   const labels={sold:'Mais vendidos',profit:'Mais lucrativos',margin:'Maior margem',lowMargin:'Menor margem',loss:'Prejuízo',slow:'Pouca saída'};
-  const rows=[...products].sort(rankers[erpProductRank]||rankers.profit);
+  const query=norm(analysisFilters.q);
+  const visibleProducts=query?products.filter(p=>norm(`${p.name} ${p.sku} ${p.itemId} ${p.category} ${p.mainMarketplace}`).includes(query)):products;
+  const rows=[...visibleProducts].sort(rankers[erpProductRank]||rankers.profit);
   auditProductCalculations('Produtos',rows);
   content.innerHTML=`<div class="erp-shell">${erpFilters()}<section class="erp-section"><h3>Produtos <small>${rows.length} no catálogo</small></h3>
     <div class="compact-actions" style="margin-bottom:10px"><button class="btn btn-primary" onclick="openStoreProductImport()">Importar produtos da loja</button><button class="btn btn-secondary" onclick="swTab('calc')">Cadastrar manual</button></div>
@@ -1579,6 +1601,9 @@ function renderPricingView(){
 function renderChannelSim(label,marketplace,price,cost){
   const f=feeRuleFor(marketplace), fees=price*(f.pct/100)+f.fixed, net=price-fees, profit=net-cost, margin=net?profit/net*100:0, h=erpHealth(margin,profit);
   return `<div class="pricing-sim-card"><h4>${label}</h4><div class="sim-line"><span>Preço</span><b>${brl(price)}</b></div><div class="sim-line"><span>Taxas</span><b>${brl(fees)}</b></div><div class="sim-line"><span>Recebe</span><b>${brl(net)}</b></div><div class="sim-line"><span>Custos</span><b>${brl(cost)}</b></div><div class="sim-line"><span>Lucro</span><b>${brl(profit)}</b></div><div class="sim-line"><span>Margem</span><b>${pct(margin)}</b></div><div class="badge-row"><span class="biz-badge ${h.cls}">${h.label}</span></div></div>`;
+}
+function cfgField(id,label,value,hint,step='0.01'){
+  return `<label class="cfg-field"><span>${label}</span><input class="fi" id="${id}" type="number" step="${step}" value="${ea(value)}"><small>${hint}</small></label>`;
 }
 function renderSettingsPage(){
   const cfg=getMarketplaceSettings();
@@ -1819,7 +1844,9 @@ function renderErpProducts(){
     lowMargin:(a,b)=>a.margin-b.margin, loss:(a,b)=>a.profit-b.profit, slow:(a,b)=>a.qty-b.qty
   };
   const labels={sold:'Mais vendidos',profit:'Mais lucrativos',margin:'Maior margem',lowMargin:'Menor margem',loss:'Prejuízo',slow:'Pouca saída'};
-  const rows=[...products].sort(rankers[erpProductRank]||rankers.profit);
+  const query=norm(analysisFilters.q);
+  const visibleProducts=query?products.filter(p=>norm(`${p.name} ${p.sku} ${p.itemId} ${p.category} ${p.mainMarketplace}`).includes(query)):products;
+  const rows=[...visibleProducts].sort(rankers[erpProductRank]||rankers.profit);
   auditProductCalculations('Produtos',rows);
   const actions=`<button class="btn btn-primary" onclick="openStoreProductImport()">Importar produtos da loja</button><button class="btn btn-secondary" onclick="swTab('calc')">Cadastrar manual</button>`;
   content.innerHTML=`<div class="ref-dashboard jm-page jm-products-page">
@@ -1899,15 +1926,44 @@ function renderPricingView(){
 function renderPricingProducts(){
   const catalog=typeof mergedProductCatalog==='function'?mergedProductCatalog():localProducts;
   if(!catalog.length)return '<section class="ref-card jm-panel"><div class="empty"><div class="ei">JM</div><div>Cadastre produtos para simular preços profissionais.</div></div></section>';
-  return `<section class="ref-card jm-panel"><h3>Comparacao real por produto <small>${catalog.length} no catalogo</small></h3><div class="jm-products-grid">${catalog.slice(0,20).map(renderPricingProductCard).join('')}</div></section>`;
+  const query=norm(analysisFilters.q);
+  const rows=(query?catalog.filter(p=>norm(`${p.name} ${p.sku} ${firstMarketplaceId(p)} ${p.category}`).includes(query)):catalog).slice(0,20);
+  return `<section class="ref-card jm-panel"><h3>Comparacao real por produto <small>${rows.length} de ${catalog.length} no catalogo</small></h3>
+    <div class="pricing-tools"><div class="ref-searchbar"><input class="fi" placeholder="Buscar produto, SKU ou item..." value="${ea(analysisFilters.q)}" oninput="analysisFilters.q=this.value;renderContent()" autocomplete="off"><button class="btn btn-secondary" onclick="analysisFilters.q='';renderContent()">Limpar</button></div>${pricingLegendHtml()}</div>
+    <div class="pricing-help-grid">
+      <div><b>Minimo</b><span>preco para nao ter prejuizo.</span></div>
+      <div><b>Shopee 30%</b><span>preco sugerido com taxas da Shopee e 30% de margem.</span></div>
+      <div><b>TikTok 30%</b><span>preco sugerido com taxas do TikTok e 30% de margem.</span></div>
+      <div><b>Status</b><span>saude do preco atual cadastrado.</span></div>
+    </div>
+    <div class="jm-products-grid">${rows.length?rows.map(renderPricingProductCard).join(''):'<div class="empty"><div class="ei">JM</div><div>Nenhum produto encontrado para a busca.</div></div>'}</div></section>`;
+}
+function pricingCostParts(c){
+  const total=Number(c.total)||0;
+  const packaging=(Number(c.packaging)||0)+(Number(c.bubble)||0);
+  const known=(Number(c.filament)||0)+(Number(c.energy)||0)+packaging;
+  const other=Math.max(0,total-known);
+  return [
+    {label:'Filamento',hint:'material consumido pela peca',value:Number(c.filament)||0,color:'#00C2FF'},
+    {label:'Energia',hint:'kWh da impressora no tempo de impressao',value:Number(c.energy)||0,color:'#F97316'},
+    {label:'Embalagem',hint:'embalagem + plastico bolha',value:packaging,color:'#3B82F6'},
+    {label:'Outros',hint:'perdas, manutencao, acabamento e adicionais',value:other,color:'#A855F7'}
+  ];
+}
+function pricingLegendHtml(){
+  return `<div class="cost-legend-panel"><div class="legend-title">Legenda dos custos</div><div class="cost-legend-row">
+    ${pricingCostParts({}).map(p=>`<span><i style="background:${p.color}"></i><b>${p.label}</b><small>${p.hint}</small></span>`).join('')}
+  </div></div>`;
 }
 function renderPricingProductCard(p){
   const c=productUnitCost(p,0), min=priceForMargin(c.total,'shopee',0), sh30=priceForMargin(c.total,'shopee',30), tk30=priceForMargin(c.total,'tiktok',30);
   const current=Number(p.marketplaceSettings?.shopee?.salePrice ?? p.price)||0, health=current&&current<min?'bad':current&&current<priceForMargin(c.total,'shopee',10)?'warn':'ok';
   const weight=p.costs?.weightGrams??p.weight??0, hours=p.costs?.printTimeHours??p.printH??0;
+  const costParts=pricingCostParts(c), total=Number(c.total)||0;
   return `<div class="erp-product-card"><div>${p.photoUrl||p.photo?`<img class="erp-product-img" src="${ea(p.photoUrl||p.photo)}" alt="${ea(p.name)}">`:`<div class="erp-product-fallback">${jmInitials(p.name)}</div>`}</div><div><div class="erp-product-name">${esc(p.name)}</div><div class="erp-product-meta">SKU ${esc(p.sku||'-')} | custo técnico ${brl(c.total)} | ${weight}g | ${hours}h</div>
     <div class="erp-product-numbers"><div><span>Mínimo</span><b>${brl(min)}</b></div><div><span>Shopee 30%</span><b>${brl(sh30)}</b></div><div><span>TikTok 30%</span><b>${brl(tk30)}</b></div><div><span>Status</span><b>${health==='bad'?'Baixo':health==='warn'?'Atenção':'Saudável'}</b></div></div>
-    <div class="cost-bars"><span style="width:${Math.min(100,c.filament/c.total*100||0)}%;background:var(--cyan)"></span><span style="width:${Math.min(100,c.energy/c.total*100||0)}%;background:var(--orange)"></span><span style="width:${Math.min(100,(c.packaging+c.bubble)/c.total*100||0)}%;background:var(--blue)"></span></div></div></div>`;
+    <div class="cost-bars" title="Composicao do custo tecnico">${costParts.map(part=>`<span style="width:${Math.max(0.5,Math.min(100,total?part.value/total*100:0))}%;background:${part.color}"></span>`).join('')}</div>
+    <div class="cost-card-legend">${costParts.filter(p=>p.value>0).map(part=>`<span><i style="background:${part.color}"></i>${part.label} ${brl(part.value)}</span>`).join('')||'<span>Custo tecnico nao detalhado</span>'}</div></div></div>`;
 }
 function renderSettingsPage(){
   const cfg=getMarketplaceSettings();
@@ -1915,10 +1971,17 @@ function renderSettingsPage(){
     ${jmPageHead('Configurações','Custos e lojas','Ajustes globais usados em precificação, importação e dashboard financeiro.')}
     <div class="jm-settings-grid">
       <section class="ref-card jm-panel jm-settings-main"><h3>Custos globais <small>produção e fiscal</small></h3>
-        <div class="filter-row"><input class="fi" id="mc-fil" type="number" value="${cfg.filamentKgPrice}" placeholder="Filamento R$/kg"><input class="fi" id="mc-kwh" type="number" value="${cfg.energyKwhPrice}" placeholder="Energia R$/kWh"></div>
-        <div class="filter-row"><input class="fi" id="mc-cons" type="number" value="${cfg.printerKwhHour}" placeholder="kWh/h impressora"><input class="fi" id="mc-das" type="number" value="${cfg.dasMeiMonthly}" placeholder="DAS MEI"></div>
-        <div class="filter-row"><input class="fi" id="mc-loss" type="number" value="${cfg.lossPct}" placeholder="Perdas %"><input class="fi" id="mc-post" type="number" value="${cfg.postProcessCost}" placeholder="Pos-processamento"></div>
-        <div class="filter-row"><input class="fi" id="mc-shp" type="number" value="${cfg.shopeeCommissionPct}" placeholder="Shopee %"><input class="fi" id="mc-tkt" type="number" value="${cfg.tiktokCommissionPct}" placeholder="TikTok %"></div>
+        <div class="cfg-field-grid">
+          ${cfgField('mc-fil','Filamento R$/kg',cfg.filamentKgPrice,'Preco medio do kg de filamento usado no custo tecnico.')}
+          ${cfgField('mc-kwh','Energia R$/kWh',cfg.energyKwhPrice,'Valor do kWh da sua conta de luz.')}
+          ${cfgField('mc-cons','Consumo kWh/h',cfg.printerKwhHour,'Consumo medio da impressora por hora de impressao.')}
+          ${cfgField('mc-das','DAS MEI mensal',cfg.dasMeiMonthly,'Valor mensal rateado por unidade ou pedido conforme configuracao.')}
+          ${cfgField('mc-loss','Perdas/refugo %',cfg.lossPct,'Percentual para falhas, testes e margem de erro da impressao.')}
+          ${cfgField('mc-post','Pos-processamento R$',cfg.postProcessCost,'Cola, pintura, acabamento ou trabalho manual por unidade.')}
+          ${cfgField('mc-shp','Taxa Shopee %',cfg.shopeeCommissionPct,'Percentual usado nas simulacoes da Shopee.')}
+          ${cfgField('mc-tkt','Taxa TikTok %',cfg.tiktokCommissionPct,'Percentual usado nas simulacoes do TikTok Shop.')}
+        </div>
+        ${pricingLegendHtml()}
         <div class="jm-action-row"><button class="btn btn-save" onclick="saveMarketCfgUI()">Salvar custos globais</button><button class="btn btn-secondary" onclick="openConfig()">Abrir configurações antigas</button></div>
       </section>
       <section class="ref-card jm-panel jm-settings-side"><h3>Lojas ativas</h3><div class="store-grid">${erpStores().filter(x=>x[0]!=='all').map(([id,label])=>`<div class="store-card"><div><b>${label}</b><div class="store-meta">Usada em filtros, dashboards, importações e vínculos.</div></div><div class="store-val">Ativa</div></div>`).join('')}</div></section>
