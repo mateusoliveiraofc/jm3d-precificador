@@ -31,3 +31,14 @@
 - Melhorada a vinculacao automatica por SKU, itemId/link, alias e nome parecido.
 - Adicionados campos profissionais no cadastro de produto: SKU, categoria, aliases, links marketplace e observacoes internas.
 - Melhorada a decomposicao de custo para filamento, energia, embalagem, MEI e outros custos.
+
+## Mini ERP financeiro
+
+- Substituida a navegacao de calculadora/analise por `Financeiro`, `Produtos`, `Importacoes`, `Precificacao` e `Configuracoes`.
+- A tela inicial agora prioriza `Caiu na sua conta`, `Lucro livre`, `Margem real`, `Ticket medio`, `ROI` e reservas para filamento, energia, embalagens, MEI e manutencao.
+- Criada central de produtos com quantidade vendida, recebido, custo, lucro, margem, marketplace principal e badges de negocio.
+- Criada tela de importacoes com fluxo profissional, revisao executiva e historico de lotes.
+- Criado registro `users/default/marketplaceImports` para resumo dos lotes importados.
+- Refeita a precificacao como simulador por Shopee, TikTok Shop e venda direta, com preco minimo, saudavel, recomendado e premium.
+- Adicionada tela de configuracoes financeiras dentro da navegacao principal.
+- Adicionado reforco de reconhecimento por URL do anuncio e foto semelhante quando os dados estiverem disponiveis.

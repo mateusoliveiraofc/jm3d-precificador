@@ -710,3 +710,395 @@ function exportAnalysisCsv(){
   const url=URL.createObjectURL(blob),a=document.createElement('a');
   a.href=url;a.download='jm3d_analise_lucro.csv';document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);
 }
+
+/* ERP experience layer */
+var erpProductRank='profit';
+var erpPricingPrice=39.90;
+var erpPricingProductId='';
+
+function erpPeriodOptions(){
+  return [
+    ['today','Hoje'],['7d','7 dias'],['30d','30 dias'],
+    ['thisMonth','Este mês'],['previousMonth','Mês anterior'],['custom','Personalizado']
+  ];
+}
+function erpStores(){
+  return [['all','Todas'],['_kaline98','Shopee _kaline98'],['mateusoliver98','Shopee mateusoliver98'],['TikTok Shop','TikTok Shop']];
+}
+function erpPeriodBounds(period=analysisFilters.period){
+  const today=new Date(); today.setHours(0,0,0,0);
+  const startOfMonth=new Date(today.getFullYear(),today.getMonth(),1);
+  const endOfMonth=new Date(today.getFullYear(),today.getMonth()+1,0,23,59,59,999);
+  if(period==='today')return {from:today,to:new Date(today.getTime()+86399999)};
+  if(period==='7d')return {from:new Date(today.getTime()-6*86400000),to:new Date(today.getTime()+86399999)};
+  if(period==='30d')return {from:new Date(today.getTime()-29*86400000),to:new Date(today.getTime()+86399999)};
+  if(period==='thisMonth')return {from:startOfMonth,to:endOfMonth};
+  if(period==='previousMonth')return {from:new Date(today.getFullYear(),today.getMonth()-1,1),to:new Date(today.getFullYear(),today.getMonth(),0,23,59,59,999)};
+  if(period==='custom')return {
+    from:analysisFilters.from?new Date(analysisFilters.from+'T00:00:00'):null,
+    to:analysisFilters.to?new Date(analysisFilters.to+'T23:59:59'):null
+  };
+  return {from:null,to:null};
+}
+function isInsidePeriod(o){
+  const d=parseDateFlexible(o.paymentDate||o.paidDate||o.date||o.orderDate);
+  if(!d)return true;
+  const day=new Date(d+'T12:00:00');
+  const b=erpPeriodBounds();
+  return (!b.from||day>=b.from)&&(!b.to||day<=b.to);
+}
+function erpPreviousOrders(){
+  const b=erpPeriodBounds();
+  if(!b.from||!b.to)return [];
+  const span=b.to.getTime()-b.from.getTime()+1;
+  const prevTo=new Date(b.from.getTime()-1);
+  const prevFrom=new Date(prevTo.getTime()-span+1);
+  return analyzedOrders().filter(o=>{
+    const d=parseDateFlexible(o.paymentDate||o.paidDate||o.date||o.orderDate);
+    if(!d)return false;
+    const day=new Date(d+'T12:00:00');
+    if(day<prevFrom||day>prevTo)return false;
+    if(analysisFilters.marketplace!=='all'&&marketplaceFilterValue(o.marketplace)!==analysisFilters.marketplace)return false;
+    if(analysisFilters.store!=='all'&&o.store!==analysisFilters.store)return false;
+    return true;
+  });
+}
+function erpTrend(current,previous){
+  if(!previous&&current)return 'novo período';
+  if(!previous)return 'sem comparação';
+  const delta=(current-previous)/Math.abs(previous)*100;
+  return `${delta>=0?'subiu':'caiu'} ${Math.abs(delta).toFixed(1)}%`;
+}
+function erpReserveTotal(s){return s.filament+s.energy+s.packaging+s.mei+s.other;}
+function erpFreeProfit(s){return s.net-erpReserveTotal(s)-s.fees;}
+function erpTicket(s,orders){return orders.length?s.net/orders.length:0;}
+function erpRoi(s){return s.cost?s.profit/s.cost*100:0;}
+function erpHealth(margin,profit=1){
+  if(profit<0||margin<0)return {cls:'bad',label:'Prejuízo'};
+  if(margin<15)return {cls:'bad',label:'Margem baixa'};
+  if(margin<25)return {cls:'warn',label:'Atenção'};
+  if(margin<45)return {cls:'good',label:'Saudável'};
+  return {cls:'good',label:'Excelente'};
+}
+function erpTopProduct(orders,mode='profit'){
+  return productPerformance(orders).sort((a,b)=>(b[mode]||0)-(a[mode]||0))[0]||null;
+}
+function erpTopStore(orders){
+  const map={};
+  orders.forEach(o=>{
+    const k=o.store||'Sem loja';
+    map[k]=map[k]||{name:k,net:0,profit:0,orders:0,qty:0};
+    map[k].net+=Number(o.net)||0; map[k].profit+=Number(o.profit)||0; map[k].orders++; map[k].qty+=Number(o.qty)||1;
+  });
+  return Object.values(map).sort((a,b)=>b.profit-a.profit)[0]||null;
+}
+function erpTopMarketplace(orders){
+  const map={};
+  orders.forEach(o=>{
+    const k=marketplaceFilterValue(o.marketplace);
+    map[k]=map[k]||{name:k,net:0,profit:0,orders:0};
+    map[k].net+=Number(o.net)||0; map[k].profit+=Number(o.profit)||0; map[k].orders++;
+  });
+  return Object.values(map).sort((a,b)=>b.profit-a.profit)[0]||null;
+}
+function erpCard(icon,label,value,cls='info',hint=''){
+  return `<div class="erp-card ${cls}"><div class="ico">${icon}</div><div class="lbl">${label}</div><div class="val">${value}</div>${hint?`<div class="hint">${hint}</div>`:''}</div>`;
+}
+function erpFilters(){
+  return `<div class="erp-section"><div class="erp-pills">${erpPeriodOptions().map(([id,label])=>`<button class="${analysisFilters.period===id?'on':''}" onclick="analysisFilters.period='${id}';renderContent()">${label}</button>`).join('')}</div>
+  ${analysisFilters.period==='custom'?`<div class="filter-row" style="margin-top:10px"><input class="fi" type="date" value="${analysisFilters.from}" onchange="analysisFilters.from=this.value;renderContent()"><input class="fi" type="date" value="${analysisFilters.to}" onchange="analysisFilters.to=this.value;renderContent()"></div>`:''}
+  <div class="erp-pills" style="margin-top:8px">${erpStores().map(([id,label])=>`<button class="${analysisFilters.store===id?'on':''}" onclick="analysisFilters.store='${id}';renderContent()">${label}</button>`).join('')}</div></div>`;
+}
+function renderAnalysis(){
+  const content=document.getElementById('content'); if(!content)return;
+  content.innerHTML=renderFinanceiroView();
+}
+function renderFinanceiroView(){
+  const orders=filteredOrders(), s=summarizeOrders(orders), prev=summarizeOrders(erpPreviousOrders());
+  const margin=s.net?s.profit/s.net*100:0, free=erpFreeProfit(s), reserve=erpReserveTotal(s);
+  const bestProduct=erpTopProduct(orders,'profit'), bestStore=erpTopStore(orders), bestMarketplace=erpTopMarketplace(orders);
+  return `<div class="erp-shell">
+    ${erpFilters()}
+    <div class="erp-hero">
+      <div class="erp-eyebrow">Caiu na sua conta</div>
+      <div class="erp-big">${brl(s.net)}</div>
+      <div class="erp-sub">Valor líquido recebido da Shopee e TikTok Shop. ${erpTrend(s.net,prev.net)} em relação ao período anterior.</div>
+    </div>
+    <div class="erp-grid">
+      ${erpCard('💼','Lucro livre',brl(free),free>=0?'good':'bad','Depois de separar produção, taxas e MEI.')}
+      ${erpCard('📈','Margem real',pct(margin),margin>=25?'good':margin>=15?'warn':'bad',`${orders.length} pedidos no período`)}
+      ${erpCard('🧾','Ticket médio',brl(erpTicket(s,orders)),'info','Recebido líquido por pedido.')}
+      ${erpCard('🚀','ROI',pct(erpRoi(s)),erpRoi(s)>=50?'good':'warn','Lucro sobre custo de produção.')}
+    </div>
+    <section class="erp-section"><h3>Você precisa separar <small>${brl(reserve)} no total</small></h3>
+      <div class="reserve-list">
+        ${reserveRow('Filamento',s.filament)}${reserveRow('Energia',s.energy)}${reserveRow('Embalagens',s.packaging)}
+        ${reserveRow('MEI',s.mei)}${reserveRow('Manutenção e outros',s.other)}
+      </div>
+    </section>
+    <section class="erp-section"><h3>Campeões do período <small>decisão rápida</small></h3>
+      <div class="erp-grid">
+        ${erpCard('🏆','Produto campeão',bestProduct?esc(bestProduct.name):'Sem dados','good',bestProduct?`${bestProduct.qty} vendas • ${brl(bestProduct.profit)} de lucro`:'Importe relatórios para descobrir.')}
+        ${erpCard('🏬','Loja campeã',bestStore?esc(bestStore.name):'Sem dados','info',bestStore?`${bestStore.orders} pedidos • ${brl(bestStore.profit)} de lucro`:'')}
+        ${erpCard('🛒','Marketplace campeão',bestMarketplace?marketplaceLabel(bestMarketplace.name):'Sem dados','info',bestMarketplace?`${brl(bestMarketplace.net)} recebidos`:'' )}
+        ${erpCard('⚠','Produtos sem vínculo',String(s.unlinked),s.unlinked?'warn':'good',s.unlinked?'Corrija vínculos para melhorar custos.':'Tudo vinculado no período.')}
+      </div>
+    </section>
+    <section class="erp-section"><h3>Fluxo de caixa <small>recebido, lucro e separação</small></h3>${renderCashflowChart(orders)}</section>
+    <section class="erp-section"><h3>Comparação entre lojas <small>performance real</small></h3>${renderStoreComparison(orders)}</section>
+    <section class="erp-section"><h3>Alertas de negócio <small>o que agir primeiro</small></h3>${renderBusinessAlerts(orders)}</section>
+    <button class="btn btn-export" onclick="exportAnalysisCsv()">Exportar CSV da análise</button>
+  </div>`;
+}
+function reserveRow(label,value){return `<div class="reserve-row"><span>${label}</span><b>${brl(value)}</b></div>`;}
+function marketplaceLabel(v){return v==='tiktokShop'?'TikTok Shop':v==='shopee'?'Shopee':v;}
+function dailySeries3(orders){
+  const map={};
+  orders.forEach(o=>{
+    const d=parseDateFlexible(o.paymentDate||o.paidDate||o.date||o.orderDate)||'sem data';
+    map[d]=map[d]||{label:d.slice(5),net:0,profit:0,reserve:0};
+    map[d].net+=Number(o.net)||0; map[d].profit+=Number(o.profit)||0;
+    const c=o.costParts||{};
+    map[d].reserve+=(Number(c.filament)||0)+(Number(c.energy)||0)+(Number(c.packaging)||0)+(Number(c.bubble)||0)+(Number(c.mei)||0)+(Number(c.other)||0);
+  });
+  return Object.keys(map).sort().slice(-14).map(k=>map[k]);
+}
+function renderCashflowChart(orders){
+  const data=dailySeries3(orders);
+  if(!data.length)return '<div class="muted-note">Importe relatórios para ver o fluxo de caixa.</div>';
+  const w=340,h=170,p=24,max=Math.max(...data.flatMap(d=>[d.net,d.profit,d.reserve].map(Math.abs)),1);
+  const pathFor=(field)=>data.map((d,i)=>{
+    const x=p+(data.length===1?0:i*(w-p*2)/(data.length-1));
+    const y=h-p-(Math.max(0,d[field])/max)*(h-p*2);
+    return `${i?'L':'M'}${x.toFixed(1)} ${y.toFixed(1)}`;
+  }).join(' ');
+  return `<div class="cashflow-card"><svg class="cashflow-svg" viewBox="0 0 ${w} ${h}" aria-label="Fluxo de caixa">
+    <defs><linearGradient id="cashFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#00E676" stop-opacity=".32"/><stop offset="1" stop-color="#00E676" stop-opacity="0"/></linearGradient></defs>
+    <path d="${pathFor('net')} L ${w-p} ${h-p} L ${p} ${h-p} Z" fill="url(#cashFill)"/>
+    <path d="${pathFor('net')}" fill="none" stroke="#00E676" stroke-width="4" stroke-linecap="round"/>
+    <path d="${pathFor('profit')}" fill="none" stroke="#00CFFF" stroke-width="3" stroke-linecap="round"/>
+    <path d="${pathFor('reserve')}" fill="none" stroke="#FF8C00" stroke-width="3" stroke-linecap="round" stroke-dasharray="5 6"/>
+    ${data.map((d,i)=>`<text x="${p+i*(w-p*2)/Math.max(1,data.length-1)}" y="${h-5}" fill="#8899BB" font-size="9" text-anchor="middle">${d.label}</text>`).join('')}
+  </svg><div class="legend"><div><span style="background:#00E676"></span>Recebido por dia</div><div><span style="background:#00CFFF"></span>Lucro por dia</div><div><span style="background:#FF8C00"></span>Separação por dia</div></div></div>`;
+}
+function renderStoreComparison(orders){
+  const cards=erpStores().filter(x=>x[0]!=='all').map(([id,label])=>{
+    const subset=orders.filter(o=>o.store===id), s=summarizeOrders(subset), margin=s.net?s.profit/s.net*100:0;
+    return `<div class="store-card"><div><b>${label}</b><div class="store-meta">${subset.length} pedidos • margem ${pct(margin)}<br>Ticket ${brl(erpTicket(s,subset))}</div></div><div class="store-val">${brl(s.profit)}<br><small>${brl(s.net)}</small></div></div>`;
+  }).join('');
+  return `<div class="store-grid">${cards}</div>`;
+}
+function renderBusinessAlerts(orders){
+  const products=productPerformance(orders);
+  const low=products.filter(p=>p.margin<20&&p.qty>0).slice(0,3);
+  const bad=products.filter(p=>p.profit<0).slice(0,3);
+  const unlinked=orders.filter(o=>!o.linkedProductId).slice(0,3);
+  const items=[
+    ...low.map(p=>['warn','Preço abaixo do ideal',`${p.name}: margem ${pct(p.margin)}`]),
+    ...bad.map(p=>['bad','Produto em prejuízo',`${p.name}: ${brl(p.profit)}`]),
+    ...unlinked.map(o=>['warn','Produto sem vínculo',o.productName||o.orderId])
+  ].slice(0,6);
+  if(!items.length)return '<div class="alert-item"><b>Tudo certo no período</b><span>sem alertas críticos</span></div>';
+  return `<div class="alert-list">${items.map(([cls,title,body])=>`<div class="alert-item"><b>${title}</b><span class="${cls}">${esc(body)}</span></div>`).join('')}</div>`;
+}
+function productPerformance(orders=filteredOrders()){
+  const catalog=typeof mergedProductCatalog==='function'?mergedProductCatalog():localProducts;
+  const byId={};
+  orders.forEach(o=>{
+    const id=o.linkedProductId||slug(o.linkedProductName||o.productName||'sem_vinculo');
+    const product=catalog.find(p=>p.id===id||p.legacyProductId===id)||{};
+    byId[id]=byId[id]||{id,name:o.linkedProductName||o.productName||product.name||'Produto não vinculado',sku:product.sku||o.sku||'',category:product.category||'',photo:product.photoUrl||product.photo||'',qty:0,orders:0,gross:0,net:0,cost:0,profit:0,margin:0,mainMarketplace:'',marketplaces:{}};
+    const p=byId[id], qty=Number(o.qty)||1, m=marketplaceFilterValue(o.marketplace);
+    p.qty+=qty; p.orders++; p.gross+=Number(o.gross)||0; p.net+=Number(o.net)||0; p.cost+=Number(o.totalCost)||0; p.profit+=Number(o.profit)||0;
+    p.marketplaces[m]=(p.marketplaces[m]||0)+(Number(o.profit)||0);
+  });
+  Object.values(byId).forEach(p=>{
+    p.margin=p.net?p.profit/p.net*100:0;
+    p.mainMarketplace=Object.keys(p.marketplaces).sort((a,b)=>p.marketplaces[b]-p.marketplaces[a])[0]||'-';
+  });
+  return Object.values(byId);
+}
+function renderErpProducts(){
+  const content=document.getElementById('content'); if(!content)return;
+  const orders=filteredOrders(), products=productPerformance(orders);
+  const rankers={
+    sold:(a,b)=>b.qty-a.qty, profit:(a,b)=>b.profit-a.profit, margin:(a,b)=>b.margin-a.margin,
+    lowMargin:(a,b)=>a.margin-b.margin, loss:(a,b)=>a.profit-b.profit, slow:(a,b)=>a.qty-b.qty
+  };
+  const labels={sold:'Mais vendidos',profit:'Mais lucrativos',margin:'Maior margem',lowMargin:'Menor margem',loss:'Prejuízo',slow:'Pouca saída'};
+  const rows=[...products].sort(rankers[erpProductRank]||rankers.profit);
+  content.innerHTML=`<div class="erp-shell">${erpFilters()}<section class="erp-section"><h3>Produtos <small>${rows.length} analisados</small></h3>
+    <div class="product-rank-tabs">${Object.keys(labels).map(k=>`<button class="${erpProductRank===k?'on':''}" onclick="erpProductRank='${k}';renderErpProducts()">${labels[k]}</button>`).join('')}</div>
+    ${rows.length?rows.map(renderErpProductCard).join(''):'<div class="empty"><div class="ei">📦</div><div>Importe relatórios para ver performance por produto.</div></div>'}
+  </section><button class="btn btn-primary" onclick="swTab('calc')">Cadastrar produto / abrir calculadora</button></div>`;
+}
+function renderErpProductCard(p){
+  const h=erpHealth(p.margin,p.profit);
+  const badges=[];
+  if(p.qty>=20)badges.push(['good','🏆 Mais vendido']);
+  if(p.profit>0&&p.margin>=45)badges.push(['good','⭐ Excelente']);
+  if(p.margin<20)badges.push(['warn','⚠ Margem baixa']);
+  if(p.profit<0)badges.push(['bad','📉 Prejuízo']);
+  if(!p.sku)badges.push(['warn','Sem SKU']);
+  return `<div class="erp-product-card" onclick="openProductDashboard('${ea(p.id)}')">
+    ${p.photo?`<img class="erp-product-img" src="${p.photo}">`:'<div class="erp-product-fallback">📦</div>'}
+    <div><div class="erp-product-name">${esc(p.name)}</div><div class="erp-product-meta">${p.qty} vendas • ${marketplaceLabel(p.mainMarketplace)} • ${esc(p.sku||'SKU não cadastrado')}</div>
+    <div class="erp-product-numbers"><div><span>Recebido</span><b>${brl(p.net)}</b></div><div><span>Custou</span><b>${brl(p.cost)}</b></div><div><span>Lucro</span><b>${brl(p.profit)}</b></div><div><span>Margem</span><b>${pct(p.margin)}</b></div></div>
+    <div class="badge-row"><span class="biz-badge ${h.cls}">${h.label}</span>${badges.map(([cls,b])=>`<span class="biz-badge ${cls}">${b}</span>`).join('')}</div></div>
+  </div>`;
+}
+function openProductDashboard(id){
+  const p=productPerformance(filteredOrders()).find(x=>x.id===id); if(!p)return;
+  const c=productUnitCost((typeof mergedProductCatalog==='function'?mergedProductCatalog():localProducts).find(x=>x.id===id)||{},0);
+  const ideal=priceForMargin(c.total,'shopee',30);
+  openSht('Dashboard do produto',`${p.photo?`<img src="${p.photo}" style="width:100%;max-height:220px;object-fit:cover;border-radius:16px;margin-bottom:12px">`:''}
+    <div class="erp-product-name">${esc(p.name)}</div><div class="muted-note">SKU ${esc(p.sku||'-')} • Categoria ${esc(p.category||'-')}</div>
+    <div class="erp-grid">${erpCard('💰','Lucro acumulado',brl(p.profit),p.profit>=0?'good':'bad')}${erpCard('📦','Quantidade vendida',String(p.qty),'info')}${erpCard('📈','Margem',pct(p.margin),p.margin>=25?'good':'warn')}${erpCard('🛒','Mais rentável',marketplaceLabel(p.mainMarketplace),'info')}</div>
+    <section class="erp-section" style="margin-top:10px"><h3>Preço e oportunidades</h3><div class="ideal-grid">${idealCard('Preço ideal',ideal)}${idealCard('+ R$ 2 no preço',p.qty*2)}${idealCard('+ R$ 5 no preço',p.qty*5)}${idealCard('Lucro unitário',p.qty?p.profit/p.qty:0)}</div></section>
+    <button class="btn btn-secondary" onclick="closeSht()">Fechar</button>`);
+}
+function idealCard(label,value){return `<div class="ideal-card"><span>${label}</span><b>${brl(value)}</b></div>`;}
+function renderImportsPage(){
+  const content=document.getElementById('content'); if(!content)return;
+  content.innerHTML=`<div class="erp-shell">${renderImportView()}${importReview?'<div id="import-review">'+renderImportReviewHtml()+'</div>':'<div id="import-review"></div>'}
+  <section class="erp-section"><h3>Histórico de importações <small>${marketplaceImports.length} lotes</small></h3>${renderImportHistory()}</section></div>`;
+}
+function renderImportView(){
+  return `<section class="erp-section"><h3>Importação em massa <small>Shopee + TikTok</small></h3>
+    <div class="import-stepper"><div class="import-step"><b>1.</b> Selecione CSV e XLSX misturados</div><div class="import-step"><b>2.</b> O sistema categoriza e cruza pedidos</div><div class="import-step"><b>3.</b> Duplicados são ignorados e o lucro é calculado</div></div>
+    <div class="file-drop"><input class="fi" type="file" id="market-files" accept=".xlsx,.csv" multiple onchange="processMarketplaceFiles([...this.files])"><div class="muted-note">Formatos suportados: Shopee Income, Shopee Order.completed, TikTok income e TikTok Enviado pedido CSV.</div></div>
+  </section>`;
+}
+function renderImportHistory(){
+  if(!marketplaceImports.length)return '<div class="empty"><div class="ei">📥</div><div>Nenhuma importação confirmada ainda.</div></div>';
+  return marketplaceImports.slice(0,20).map(i=>`<div class="store-card"><div><b>${esc(i.name||i.id)}</b><div class="store-meta">${new Date(i.createdAt||Date.now()).toLocaleString('pt-BR')} • ${i.files||0} arquivos<br>${i.newOrders||0} novos • ${i.duplicates||0} duplicados • ${i.unlinked||0} pendentes</div></div><div class="store-val">${brl(i.net||0)}<br><small>${esc(i.status||'importado')}</small></div></div>`).join('');
+}
+function renderImportReviewHtml(){
+  const r=importReview, orders=r.orders.map(o=>enrichOrder(o)), s=summarizeOrders(orders);
+  return `<section class="erp-section"><h3>Resumo final da importação <small>revise antes de salvar</small></h3>
+    <div class="erp-grid">${erpCard('📄','Arquivos analisados',String(r.summaries.length),'info')}${erpCard('🧾','Pedidos encontrados',String(orders.length),'info')}${erpCard('✅','Pedidos novos',String(r.newOrders.length),'good')}${erpCard('♻','Duplicados ignorados',String(r.duplicates.length),r.duplicates.length?'warn':'good')}${erpCard('🔗','Produtos vinculados',String(orders.filter(o=>o.linkedProductId).length),'good')}${erpCard('⚠','Produtos pendentes',String(orders.filter(o=>!o.linkedProductId).length),orders.some(o=>!o.linkedProductId)?'warn':'good')}${erpCard('💳','Valor importado',brl(s.net),'info')}${erpCard('💼','Lucro calculado',brl(s.profit),s.profit>=0?'good':'bad')}</div>
+    <div class="review-list" style="margin-top:10px"><table class="mini-table"><thead><tr><th>Arquivo</th><th>Tipo</th><th>Pedidos</th></tr></thead><tbody>${r.summaries.map(x=>`<tr><td>${esc(x.file)}</td><td>${esc(x.kind)}</td><td class="num">${x.orders}</td></tr>`).join('')}</tbody></table></div>
+    ${r.errors.length?`<div class="muted-note" style="color:var(--red)">${r.errors.map(esc).join('<br>')}</div>`:''}
+    <button class="btn btn-save" onclick="confirmMarketplaceImport()">Confirmar importação</button><button class="btn btn-secondary" onclick="analysisFilters.health='unlinked';swTab('produtos')">Corrigir vínculos</button><button class="btn btn-danger" onclick="importReview=null;renderContent()">Cancelar</button>
+  </section>`;
+}
+async function confirmMarketplaceImport(){
+  if(!importReview)return;
+  const batchId='batch_'+Date.now();
+  const save=importReview.newOrders.map(o=>Object.assign(enrichOrder(o),{source:Object.assign({},o.source||{},{importBatchId:batchId})}));
+  const all=importReview.orders.map(o=>enrichOrder(o)), s=summarizeOrders(all);
+  const record=sanitizeForFirebase({id:batchId,name:'Importação '+new Date().toLocaleString('pt-BR'),createdAt:Date.now(),files:importReview.summaries.length,summaries:importReview.summaries,newOrders:importReview.newOrders.length,duplicates:importReview.duplicates.length,errors:importReview.errors,unlinked:all.filter(o=>!o.linkedProductId).length,gross:s.gross,net:s.net,profit:s.profit,status:'importado'});
+  try{
+    if(marketplaceOrdersRef){
+      const updates={}; save.forEach(o=>updates[o.id]=sanitizeForFirebase(o));
+      await marketplaceOrdersRef.update(updates);
+      if(marketplaceImportsRef)await marketplaceImportsRef.child(batchId).set(record);
+    }else{
+      marketplaceOrders=[...marketplaceOrders,...save];
+      marketplaceImports=[record,...marketplaceImports];
+      localStorage.setItem('jm3d_market_orders',JSON.stringify(marketplaceOrders));
+      localStorage.setItem('jm3d_market_imports',JSON.stringify(marketplaceImports));
+    }
+    setSyncStatus('ok',`✅ ${save.length} pedidos importados`);
+    importReview=null; swTab('financeiro');
+  }catch(e){setSyncStatus('err','Erro ao salvar importação: '+e.message);}
+}
+function renderPricingView(){
+  const catalog=typeof mergedProductCatalog==='function'?mergedProductCatalog():localProducts;
+  if(!erpPricingProductId&&catalog[0])erpPricingProductId=catalog[0].id;
+  const product=catalog.find(p=>p.id===erpPricingProductId)||catalog[0]||null;
+  const cost=product?productUnitCost(product,0).total:0;
+  const price=Number(erpPricingPrice)||0;
+  return `<div class="erp-shell"><section class="erp-section"><h3>Simulador profissional <small>quanto sobra se vender por...</small></h3>
+    <select class="fi" onchange="erpPricingProductId=this.value;renderPricingView()">${catalog.map(p=>`<option value="${p.id}" ${product&&product.id===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select>
+    <label class="fl">Preço de venda</label><input class="fi" type="number" value="${price}" oninput="erpPricingPrice=parseMoneyBR(this.value);renderPricingView()">
+    <div class="pricing-sim-grid">${renderChannelSim('Shopee','shopee',price,cost)}${renderChannelSim('TikTok Shop','tiktok',price,cost)}${renderChannelSim('Venda direta','direct',price,cost)}</div>
+  </section><section class="erp-section"><h3>Preço ideal <small>linguagem de negócio</small></h3><div class="ideal-grid">${idealCard('Preço mínimo',priceForMargin(cost,'shopee',0))}${idealCard('Preço saudável',priceForMargin(cost,'shopee',20))}${idealCard('Preço recomendado',priceForMargin(cost,'shopee',30))}${idealCard('Preço premium',priceForMargin(cost,'shopee',50))}</div></section>
+  <button class="btn btn-primary" onclick="swTab('calc')">Abrir calculadora/cadastro completo</button>${renderPricingProducts()}</div>`;
+}
+function renderChannelSim(label,marketplace,price,cost){
+  const f=feeRuleFor(marketplace), fees=price*(f.pct/100)+f.fixed, net=price-fees, profit=net-cost, margin=net?profit/net*100:0, h=erpHealth(margin,profit);
+  return `<div class="pricing-sim-card"><h4>${label}</h4><div class="sim-line"><span>Preço</span><b>${brl(price)}</b></div><div class="sim-line"><span>Taxas</span><b>${brl(fees)}</b></div><div class="sim-line"><span>Recebe</span><b>${brl(net)}</b></div><div class="sim-line"><span>Custos</span><b>${brl(cost)}</b></div><div class="sim-line"><span>Lucro</span><b>${brl(profit)}</b></div><div class="sim-line"><span>Margem</span><b>${pct(margin)}</b></div><div class="badge-row"><span class="biz-badge ${h.cls}">${h.label}</span></div></div>`;
+}
+function renderSettingsPage(){
+  const cfg=getMarketplaceSettings();
+  return `<div class="erp-shell"><section class="erp-section"><h3>Configurações financeiras <small>custos globais</small></h3>
+    <div class="filter-row"><input class="fi" id="mc-fil" type="number" value="${cfg.filamentKgPrice}" placeholder="Filamento R$/kg"><input class="fi" id="mc-kwh" type="number" value="${cfg.energyKwhPrice}" placeholder="Energia R$/kWh"></div>
+    <div class="filter-row"><input class="fi" id="mc-cons" type="number" value="${cfg.printerKwhHour}" placeholder="kWh/h impressora"><input class="fi" id="mc-das" type="number" value="${cfg.dasMeiMonthly}" placeholder="DAS MEI"></div>
+    <div class="filter-row"><input class="fi" id="mc-loss" type="number" value="${cfg.lossPct}" placeholder="Perdas %"><input class="fi" id="mc-post" type="number" value="${cfg.postProcessCost}" placeholder="Pós-processamento"></div>
+    <div class="filter-row"><input class="fi" id="mc-shp" type="number" value="${cfg.shopeeCommissionPct}" placeholder="Shopee %"><input class="fi" id="mc-tkt" type="number" value="${cfg.tiktokCommissionPct}" placeholder="TikTok %"></div>
+    <button class="btn btn-save" onclick="saveMarketCfgUI()">Salvar custos globais</button><button class="btn btn-secondary" onclick="openConfig()">Abrir configurações antigas</button>
+  </section><section class="erp-section"><h3>Lojas ativas</h3><div class="store-grid">${erpStores().filter(x=>x[0]!=='all').map(([id,label])=>`<div class="store-card"><div><b>${label}</b><div class="store-meta">Usada em filtros, dashboards e importações.</div></div><div class="store-val">Ativa</div></div>`).join('')}</div></section></div>`;
+}
+function saveMarketCfgUI(){
+  const old=getMarketplaceSettings();
+  saveMarketplaceSettings(Object.assign(old,{
+    filamentKgPrice:parseMoneyBR(document.getElementById('mc-fil').value),
+    energyKwhPrice:parseMoneyBR(document.getElementById('mc-kwh').value),
+    printerKwhHour:parseMoneyBR(document.getElementById('mc-cons').value),
+    dasMeiMonthly:parseMoneyBR(document.getElementById('mc-das').value),
+    lossPct:parseMoneyBR(document.getElementById('mc-loss').value),
+    postProcessCost:parseMoneyBR(document.getElementById('mc-post').value),
+    shopeeCommissionPct:parseMoneyBR(document.getElementById('mc-shp').value),
+    tiktokCommissionPct:parseMoneyBR(document.getElementById('mc-tkt').value)
+  }));
+  setSyncStatus('ok','✅ Custos globais salvos');renderContent();
+}
+function photoSignal(v){
+  const s=String(v||'');
+  if(!s)return '';
+  return slug(s.replace(/^data:image\/[^;]+;base64,/,'').slice(0,160)+'_'+s.length);
+}
+function findProductMatch(o){
+  const catalog=typeof mergedProductCatalog==='function'?mergedProductCatalog():localProducts;
+  const rule=productMatchRules[slug(o.sku||o.productName)]||productMatchRules[slug(o.itemId||'')]||productMatchRules[slug(o.productName)];
+  if(rule){
+    const p=catalog.find(x=>x.id===rule.productId||x.legacyProductId===rule.productId);
+    if(p)return {product:p,confidence:1,method:'manual'};
+  }
+  const sku=norm(o.sku);
+  if(sku){
+    const p=catalog.find(x=>norm(x.sku)===sku);
+    if(p)return {product:p,confidence:.98,method:'sku'};
+  }
+  const item=norm(o.itemId||o.importedItemId);
+  if(item){
+    const p=catalog.find(x=>Object.values(x.links||{}).some(link=>norm(link).includes(item))||norm(x.sku).includes(item));
+    if(p)return {product:p,confidence:.9,method:'itemId/link'};
+  }
+  const importedUrl=norm(o.importedProductUrl||o.productUrl||'');
+  if(importedUrl){
+    const p=catalog.find(x=>Object.values(x.links||{}).some(link=>link&&norm(link)===importedUrl));
+    if(p)return {product:p,confidence:.88,method:'url do anúncio'};
+  }
+  const on=norm(o.productName);
+  if(on){
+    for(const p of catalog){
+      const aliases=[...(p.aliases||[]),p.name].map(norm);
+      if(aliases.some(a=>a&&on.includes(a)))return {product:p,confidence:.86,method:'alias'};
+    }
+  }
+  const importedPhoto=o.importedPhotoUrl||o.photoUrl||'';
+  if(importedPhoto){
+    const sig=photoSignal(importedPhoto);
+    const p=catalog.find(x=>{
+      const photo=x.photoUrl||x.photo||'';
+      return photo&&((photo===importedPhoto)||photoSignal(photo)===sig);
+    });
+    if(p)return {product:p,confidence:.74,method:'foto semelhante'};
+  }
+  if(!on)return {product:null,confidence:0,method:'none'};
+  let best=null,bestScore=0;
+  catalog.forEach(p=>{
+    const pn=norm(p.name);
+    let score=pn===on?100:(on.includes(pn)||pn.includes(on)?70:0);
+    if(!score){
+      const a=new Set(on.split(' ').filter(x=>x.length>2));
+      const b=new Set(pn.split(' ').filter(x=>x.length>2));
+      const inter=[...a].filter(x=>b.has(x)).length;
+      score=b.size?inter/b.size*60:0;
+    }
+    if(score>bestScore){best=p;bestScore=score;}
+  });
+  return bestScore>=35?{product:best,confidence:Math.min(.84,bestScore/100),method:'nome parecido'}:{product:null,confidence:0,method:'none'};
+}

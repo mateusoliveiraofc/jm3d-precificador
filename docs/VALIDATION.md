@@ -40,6 +40,7 @@ Use este checklist antes de considerar uma mudanca concluida.
 - Confirmar fallback local em falha de conexao.
 - Importar o mesmo lote de relatorios duas vezes e confirmar que duplicados sao ignorados.
 - Confirmar que pedidos importados sao salvos em `users/default/marketplaceOrders`, sem alterar `products`.
+- Confirmar que o resumo do lote e salvo em `users/default/marketplaceImports`.
 - Confirmar que produtos antigos sao espelhados em `users/default/productCatalog` sem remover o cadastro original.
 
 ## Catalogo e compartilhamento
@@ -67,6 +68,11 @@ Se forem adicionados ou alterados manifest e service worker:
 - Confirmar cruzamento do TikTok Income quando `Detalhes do pedido` e `Extratos` estiverem em abas separadas.
 - Confirmar tela de revisao antes de salvar.
 - Confirmar dashboard consolidado.
+- Confirmar tela principal `Financeiro`.
+- Confirmar central `Produtos`.
+- Confirmar historico em `Importacoes`.
+- Confirmar simulador em `Precificacao`.
+- Confirmar custos globais em `Configuracoes`.
 - Confirmar filtros por loja e marketplace.
 - Confirmar produto nao vinculado.
 - Confirmar vinculo manual de produto.
@@ -87,8 +93,9 @@ Se forem adicionados ou alterados manifest e service worker:
   - itemId/link.
   - alias.
 - Smoke test no navegador local em `http://127.0.0.1:8765/index.html`:
-  - Cadastro/calculo abre com os novos campos profissionais.
-  - Aba `Analise` renderiza dashboard financeiro.
-  - Aba `Importar` renderiza upload multiplo.
-  - Aba `Precificacao` renderiza custos globais e tabelas por produto.
-  - Confirmados 4 graficos no dashboard.
+  - `Financeiro` abre como tela inicial.
+  - `Produtos` renderiza central de gestao e rankings.
+  - `Importacoes` renderiza importacao em massa e historico.
+  - `Precificacao` renderiza simulador profissional.
+  - `Configuracoes` renderiza custos globais.
+  - Confirmados 5 itens na navegacao principal, 8 cards executivos, 5 linhas de reserva e fluxo de caixa.

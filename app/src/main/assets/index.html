@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
@@ -56,11 +56,11 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:-apple-
 
 /* TABS */
 #tabs{display:flex;background:var(--surf);border-bottom:1px solid var(--bdr);flex-shrink:0}
-.tab{flex:1;padding:11px 6px;font-size:12px;font-weight:700;color:var(--muted);cursor:pointer;border-bottom:2.5px solid transparent;text-align:center;transition:color .15s}
+.tab{flex:1;padding:11px 4px;font-size:11px;font-weight:700;color:var(--muted);cursor:pointer;border-bottom:2.5px solid transparent;text-align:center;transition:color .15s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tab.active{color:var(--cyan);border-bottom-color:var(--cyan)}
 
 /* CONTENT */
-#content{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:12px 13px 100px}
+#content{flex:1;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;padding:12px 13px 100px}
 
 /* SECTIONS */
 .sec{background:var(--surf);border:1px solid var(--bdr);border-radius:var(--r);margin-bottom:11px;overflow:hidden}
@@ -260,6 +260,54 @@ textarea.fi{resize:none;min-height:65px}
 .alert-list{display:grid;gap:7px}
 .alert-item{display:flex;justify-content:space-between;gap:8px;background:#0F1522;border:1px solid var(--bdr2);border-radius:8px;padding:9px;font-size:12px}
 .alert-item b{color:#fff}.alert-item span{color:var(--muted)}
+.erp-shell{display:grid;gap:12px}
+.erp-hero{background:radial-gradient(circle at top right,rgba(0,207,255,.18),transparent 38%),linear-gradient(135deg,#121927,#080B12);border:1px solid var(--bdr2);border-radius:18px;padding:16px;box-shadow:0 12px 28px rgba(0,0,0,.22)}
+.erp-eyebrow{font-size:10px;color:var(--muted);font-weight:900;text-transform:uppercase;letter-spacing:.7px;margin-bottom:5px}
+.erp-big{font-size:38px;font-weight:950;letter-spacing:-1px;line-height:1;color:#fff}
+.erp-sub{font-size:12px;color:var(--muted);line-height:1.45;margin-top:7px}
+.erp-grid{display:grid;grid-template-columns:1fr;gap:9px}
+.erp-card{background:linear-gradient(145deg,#111827,#0D121C);border:1px solid var(--bdr2);border-radius:16px;padding:13px;min-height:112px;position:relative;overflow:hidden}
+.erp-card::after{content:"";position:absolute;right:-34px;top:-34px;width:90px;height:90px;border-radius:50%;background:rgba(255,255,255,.035)}
+.erp-card .ico{width:34px;height:34px;border-radius:12px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.08);margin-bottom:9px}
+.erp-card .lbl{font-size:10px;color:var(--muted);text-transform:uppercase;font-weight:900;letter-spacing:.55px;margin-bottom:5px}
+.erp-card .val{font-size:22px;font-weight:950;color:#fff;line-height:1.1}
+.erp-card .hint{font-size:11px;color:var(--muted);margin-top:6px;line-height:1.35}
+.erp-card.good .val{color:var(--green)}.erp-card.warn .val{color:var(--orange)}.erp-card.bad .val{color:var(--red)}.erp-card.info .val{color:var(--cyan)}
+.reserve-list{display:grid;gap:8px;margin-top:10px}
+.reserve-row{display:grid;grid-template-columns:1fr auto;gap:8px;background:rgba(255,255,255,.035);border:1px solid var(--bdr);border-radius:12px;padding:9px 10px;font-size:12px}
+.reserve-row span{color:var(--muted)}.reserve-row b{font-size:13px}
+.erp-section{background:var(--surf);border:1px solid var(--bdr);border-radius:18px;padding:14px}
+.erp-section h3{font-size:15px;font-weight:950;margin-bottom:11px;display:flex;justify-content:space-between;gap:8px;align-items:center}
+.erp-section h3 small{font-size:10px;color:var(--muted);font-weight:800}
+.erp-pills{display:flex;gap:7px;overflow-x:auto;padding-bottom:3px;scrollbar-width:none;max-width:100%;min-width:0}.erp-pills::-webkit-scrollbar{display:none}
+.erp-pills button{border:1px solid var(--bdr2);background:var(--surf2);color:var(--muted);border-radius:999px;padding:8px 11px;font-size:11px;font-weight:900;white-space:nowrap}
+.erp-pills button.on{border-color:var(--cyan);color:var(--cyan);background:rgba(0,207,255,.12)}
+.cashflow-card{background:#0F1522;border:1px solid var(--bdr2);border-radius:16px;padding:12px}
+.cashflow-svg{width:100%;height:180px;display:block}
+.store-grid{display:grid;gap:8px}
+.store-card{display:grid;grid-template-columns:1fr auto;gap:6px;background:#0F1522;border:1px solid var(--bdr2);border-radius:14px;padding:11px}
+.store-card b{font-size:13px}.store-card .store-meta{font-size:11px;color:var(--muted);line-height:1.55}.store-card .store-val{text-align:right;font-weight:950;color:var(--green)}
+.product-rank-tabs{display:flex;gap:7px;overflow-x:auto;margin-bottom:11px}
+.product-rank-tabs button{background:var(--surf2);border:1px solid var(--bdr2);border-radius:999px;color:var(--muted);padding:8px 10px;font-size:11px;font-weight:900;white-space:nowrap}
+.product-rank-tabs button.on{color:#071018;background:var(--cyan);border-color:var(--cyan)}
+.erp-product-card{display:grid;grid-template-columns:72px 1fr;gap:11px;background:linear-gradient(145deg,#111827,#0D121C);border:1px solid var(--bdr2);border-radius:16px;padding:11px;margin-bottom:10px}
+.erp-product-img{width:72px;height:72px;border-radius:14px;object-fit:cover;background:var(--surf2)}
+.erp-product-fallback{width:72px;height:72px;border-radius:14px;background:var(--grad-btn);display:flex;align-items:center;justify-content:center;font-size:24px}
+.erp-product-name{font-size:14px;font-weight:950;margin-bottom:3px}
+.erp-product-meta{font-size:11px;color:var(--muted);line-height:1.45}
+.erp-product-numbers{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-top:8px}
+.erp-product-numbers div{background:rgba(255,255,255,.035);border:1px solid var(--bdr);border-radius:10px;padding:7px}
+.erp-product-numbers span{display:block;font-size:9px;text-transform:uppercase;color:var(--muted);font-weight:900;margin-bottom:2px}
+.erp-product-numbers b{font-size:12px}
+.badge-row{display:flex;gap:5px;flex-wrap:wrap;margin-top:8px}
+.biz-badge{border-radius:999px;padding:4px 8px;font-size:10px;font-weight:900;background:rgba(255,255,255,.06);border:1px solid var(--bdr2);color:var(--muted)}
+.biz-badge.good{color:var(--green);border-color:rgba(0,230,118,.25);background:rgba(0,230,118,.1)}
+.biz-badge.warn{color:var(--orange);border-color:rgba(255,140,0,.25);background:rgba(255,140,0,.1)}
+.biz-badge.bad{color:var(--red);border-color:rgba(255,68,68,.25);background:rgba(255,68,68,.1)}
+.import-stepper{display:grid;gap:8px;margin:12px 0}.import-step{display:flex;gap:9px;align-items:center;background:#0F1522;border:1px solid var(--bdr2);border-radius:12px;padding:10px;font-size:12px;color:var(--muted)}.import-step b{color:#fff}
+.pricing-sim-grid{display:grid;gap:9px}.pricing-sim-card{background:#0F1522;border:1px solid var(--bdr2);border-radius:16px;padding:12px}.pricing-sim-card h4{font-size:13px;margin-bottom:9px}.sim-line{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--bdr);font-size:12px}.sim-line:last-child{border-bottom:0}.sim-line span{color:var(--muted)}.sim-line b{font-size:13px}.ideal-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}.ideal-card{background:rgba(255,255,255,.035);border:1px solid var(--bdr);border-radius:12px;padding:10px}.ideal-card span{font-size:10px;color:var(--muted);text-transform:uppercase;font-weight:900}.ideal-card b{display:block;margin-top:4px;font-size:17px}
+@media(min-width:520px){.erp-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(min-width:760px){.erp-grid{grid-template-columns:repeat(4,minmax(0,1fr))}.finance-grid{grid-template-columns:repeat(4,minmax(0,1fr))}.pricing-sim-grid{grid-template-columns:repeat(3,1fr)}.store-grid{grid-template-columns:repeat(3,1fr)}}
 
 
 /* ── PIN SCREEN ── */
@@ -379,9 +427,11 @@ textarea.fi{resize:none;min-height:65px}
     <span id="sync-txt">Conectando...</span>
   </div>
   <div id="tabs">
-    <div class="tab active" onclick="swTab('calc')">🧮 Calcular</div>
-    <div class="tab" onclick="swTab('produtos')">📦 Produtos</div>
-    <div class="tab" onclick="swTab('analise')">Análise</div>
+    <div class="tab active" onclick="swTab('financeiro')">Financeiro</div>
+    <div class="tab" onclick="swTab('produtos')">Produtos</div>
+    <div class="tab" onclick="swTab('importacoes')">Importações</div>
+    <div class="tab" onclick="swTab('precificacao')">Precificação</div>
+    <div class="tab" onclick="swTab('configuracoes')">Config</div>
   </div>
   <div id="content"></div>
 </div>
@@ -501,7 +551,7 @@ function priceForMargin(cost,marketplace,marginPct){
 // ── FIREBASE CONFIG ────────────────────────────────────────────────────────
 const USER_ID='default';
 let db=null, userRootRef=null, productsRef=null, configRef=null, productCatalogRef=null,
-    marketplaceOrdersRef=null, marketplaceSettingsRef=null, matchRulesRef=null,
+    marketplaceOrdersRef=null, marketplaceSettingsRef=null, marketplaceImportsRef=null, matchRulesRef=null,
     legacyMarketplaceOrdersRef=null, legacyMarketplaceSettingsRef=null, legacyMatchRulesRef=null;
 
 function getFirebaseConfig(){
@@ -555,6 +605,7 @@ function initFirebase(){
     productCatalogRef=userRootRef.child('productCatalog');
     marketplaceOrdersRef=userRootRef.child('marketplaceOrders');
     marketplaceSettingsRef=userRootRef.child('marketplaceSettings');
+    marketplaceImportsRef=userRootRef.child('marketplaceImports');
     matchRulesRef=userRootRef.child('productMatchRules');
     legacyMarketplaceOrdersRef=db.ref('marketplaceOrders');
     legacyMarketplaceSettingsRef=db.ref('marketplaceSettings');
@@ -582,8 +633,9 @@ function setSyncStatus(state,msg){
 
 // ── LOCAL CACHE (fallback quando offline) ─────────────────────────────────
 let localProducts=[], productCatalog=[];
-let marketplaceOrders=[], productMatchRules={}, importReview=null, analysisMode='dashboard';
+let marketplaceOrders=[], marketplaceImports=[], productMatchRules={}, importReview=null, analysisMode='financeiro';
 let analysisFilters={marketplace:'all',store:'all',health:'all',q:'',period:'30d',from:'',to:''};
+marketplaceImports=JSON.parse(localStorage.getItem('jm3d_market_imports')||'[]');
 function getLocalConfig(){
   return JSON.parse(localStorage.getItem('jm3d_cfg')||JSON.stringify({
     filamentKgPrice:100,bubbleUnit:0.50,lightMonthly:130,
@@ -670,8 +722,7 @@ function startListeners(){
     localProducts=data?Object.values(data).sort((a,b)=>b.savedTs-a.savedTs):[];
     migrateLegacyProductsToCatalog();
     setSyncStatus('ok','✅ Sincronizado');
-    if(curTab==='produtos') renderProducts();
-    if(curTab==='analise') renderAnalysis();
+    if(['financeiro','produtos','importacoes','precificacao'].includes(curTab))renderContent();
   }, err=>{
     setSyncStatus('err','❌ Sem conexão — modo offline');
     localProducts=JSON.parse(localStorage.getItem('jm3d_products')||'[]');
@@ -680,7 +731,7 @@ function startListeners(){
   if(productCatalogRef)productCatalogRef.on('value',snap=>{
     productCatalog=Object.values(snap.val()||{});
     migrateLegacyProductsToCatalog();
-    if(curTab==='analise')renderAnalysis();
+    if(['financeiro','produtos','importacoes','precificacao'].includes(curTab))renderContent();
   });
 
   configRef.on('value', snap=>{
@@ -694,19 +745,23 @@ function startListeners(){
   if(marketplaceOrdersRef)marketplaceOrdersRef.on('value',snap=>{
     const data=snap.val()||{};
     marketplaceOrders=Object.values(data).sort((a,b)=>String(b.date||b.orderDate||'').localeCompare(String(a.date||a.orderDate||'')));
-    if(curTab==='analise')renderAnalysis();
+    if(['financeiro','produtos','importacoes','precificacao'].includes(curTab))renderContent();
   });
   if(legacyMarketplaceOrdersRef)legacyMarketplaceOrdersRef.on('value',snap=>{
     const legacy=Object.values(snap.val()||{});
     if(legacy.length&&!marketplaceOrders.length){
       marketplaceOrders=legacy.sort((a,b)=>String(b.date||b.orderDate||'').localeCompare(String(a.date||a.orderDate||'')));
-      if(curTab==='analise')renderAnalysis();
+      if(['financeiro','produtos','importacoes','precificacao'].includes(curTab))renderContent();
     }
+  });
+  if(marketplaceImportsRef)marketplaceImportsRef.on('value',snap=>{
+    marketplaceImports=Object.values(snap.val()||{}).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+    if(['financeiro','importacoes'].includes(curTab))renderContent();
   });
   if(marketplaceSettingsRef)marketplaceSettingsRef.on('value',snap=>{
     const cfg=snap.val();
     if(cfg)localStorage.setItem('jm3d_market_cfg',JSON.stringify(Object.assign(getMarketplaceDefaults(),cfg)));
-    if(curTab==='analise')renderAnalysis();
+    if(['financeiro','produtos','importacoes','precificacao','configuracoes'].includes(curTab))renderContent();
   });
   if(legacyMarketplaceSettingsRef)legacyMarketplaceSettingsRef.on('value',snap=>{
     const cfg=snap.val();
@@ -714,12 +769,12 @@ function startListeners(){
   });
   if(matchRulesRef)matchRulesRef.on('value',snap=>{
     productMatchRules=snap.val()||{};
-    if(curTab==='analise')renderAnalysis();
+    if(['financeiro','produtos','importacoes','precificacao'].includes(curTab))renderContent();
   });
   if(legacyMatchRulesRef)legacyMatchRulesRef.on('value',snap=>{
     const legacy=snap.val()||{};
     productMatchRules=Object.assign({},legacy,productMatchRules);
-    if(curTab==='analise')renderAnalysis();
+    if(['financeiro','produtos','importacoes','precificacao'].includes(curTab))renderContent();
   });
 }
 
@@ -756,7 +811,7 @@ async function syncConfig(cfg){
 }
 
 // ── STATE ──────────────────────────────────────────────────────────────────
-let curTab='calc', curPkg='small', profitPct=250, manualPrice=null, photoData=null;
+let curTab='financeiro', curPkg='small', profitPct=250, manualPrice=null, photoData=null;
 let viewMode='grid', searchQ='', sortBy='newest';
 let formState={name:'',desc:'',sku:'',aliases:'',shopeeKalineUrl:'',shopeeMateusUrl:'',tiktokUrl:'',category:'',notes:''};
 let aiResult={title:'',desc:'',prices:null,loading:false};
@@ -809,14 +864,17 @@ function swTab(t){
     captureProductMeta();
   }
   curTab=t;
-  const tabIds=['calc','produtos','analise'];
+  const tabIds=['financeiro','produtos','importacoes','precificacao','configuracoes'];
   document.querySelectorAll('.tab').forEach((el,i)=>
     el.classList.toggle('active',tabIds[i]===t));
   renderContent();
 }
 function renderContent(){
   if(curTab==='calc')renderCalc();
-  else if(curTab==='produtos')renderProducts();
+  else if(curTab==='produtos')renderErpProducts();
+  else if(curTab==='importacoes')renderImportsPage();
+  else if(curTab==='precificacao')document.getElementById('content').innerHTML=renderPricingView();
+  else if(curTab==='configuracoes')document.getElementById('content').innerHTML=renderSettingsPage();
   else renderAnalysis();
 }
 

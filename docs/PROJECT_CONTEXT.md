@@ -19,7 +19,7 @@ O JM 3D Precificador calcula precos de produtos impressos em 3D e gerencia um ca
 - Upload e compressao local de foto.
 - PIN de acesso.
 - Importacao em lote de relatorios Shopee/TikTok.
-- Dashboard financeiro com recebimentos, custos, resultado, alertas e graficos.
+- Mini ERP financeiro com recebimentos, reservas, resultado, alertas, produtos, importacoes e simulador.
 - Precificacao profissional por Shopee, TikTok Shop e venda direta.
 - Catalogo profissional espelhado com SKU, aliases e links por marketplace.
 
@@ -59,6 +59,7 @@ O projeto tem uma camada Android pequena e a maior parte da regra de negocio den
 - Calcula custo real, lucro, margem e status de saude do preco.
 - Permite vinculo manual entre produto importado e produto cadastrado.
 - Faz vinculo automatico por SKU, itemId/link, alias e nome parecido.
+- Renderiza as telas `Financeiro`, `Produtos`, `Importacoes`, `Precificacao` e `Configuracoes`.
 
 ## Firebase
 
@@ -68,6 +69,7 @@ O app usa Firebase Realtime Database nos caminhos:
 - `appConfig`
 - `users/default/productCatalog`
 - `users/default/marketplaceOrders`
+- `users/default/marketplaceImports`
 - `users/default/marketplaceSettings`
 - `users/default/productMatchRules`
 
@@ -76,6 +78,8 @@ Os caminhos legados `marketplaceOrders`, `marketplaceSettings` e `productMatchRu
 Os dados existentes devem continuar compativeis. Campos opcionais devem ser enviados como `null` ou omitidos, nunca como `undefined`.
 
 `products` continua sendo a estrutura principal do cadastro antigo. O novo `productCatalog` e um espelho/migracao aditiva usado pela analise profissional e pela vinculacao dos relatorios.
+
+`marketplaceImports` armazena apenas resumo de lotes de importacao. A chave de deduplicacao dos pedidos continua em `marketplaceOrders`.
 
 ## Problemas ja resolvidos que nao devem voltar
 
