@@ -776,9 +776,9 @@ function renderDashboardView(){
       ${moneyCard('Lucro TikTok Shop',brl(s.tiktokProfit),s.tiktokProfit>=0?'net':'risk')}
     </div></section>
     <section class="dash-section"><h3>Gráficos <span>visão diária e composição</span></h3>
-      <div class="chart-card"><div class="chart-title">Recebimento por dia</div>${renderLineChart(dailySeries(orders,'net'),'#00CFFF')}</div>
-      <div class="chart-card"><div class="chart-title">Lucro líquido por dia</div>${renderLineChart(dailySeries(orders,'profit'),'#00E676')}</div>
-      <div class="chart-card"><div class="chart-title">Shopee vs TikTok Shop</div>${renderBarCompare([{label:'Shopee',value:s.shopeeProfit,color:'#00CFFF'},{label:'TikTok',value:s.tiktokProfit,color:'#FF8C00'}])}</div>
+      <div class="chart-card"><div class="chart-title">Recebimento por dia</div>${renderLineChart(dailySeries(orders,'net'),'#00C2FF')}</div>
+      <div class="chart-card"><div class="chart-title">Lucro líquido por dia</div>${renderLineChart(dailySeries(orders,'profit'),'#00C2FF')}</div>
+      <div class="chart-card"><div class="chart-title">Shopee vs TikTok Shop</div>${renderBarCompare([{label:'Shopee',value:s.shopeeProfit,color:'#00C2FF'},{label:'TikTok',value:s.tiktokProfit,color:'#F97316'}])}</div>
       <div class="chart-card"><div class="chart-title">Composição dos custos</div>${renderCostDonut(s)}</div>
     </section>
     <section class="dash-section"><h3>Alertas <span>ações prioritárias</span></h3>${renderAlerts(orders)}</section>
@@ -820,11 +820,11 @@ function renderBarCompare(items){
 }
 function renderCostDonut(s){
   const parts=[
-    {label:'Filamento',value:s.filament,color:'#00CFFF'},
-    {label:'Energia',value:s.energy,color:'#FF8C00'},
+    {label:'Filamento',value:s.filament,color:'#00C2FF'},
+    {label:'Energia',value:s.energy,color:'#F97316'},
     {label:'Embalagem',value:s.packaging,color:'#7B2FFF'},
     {label:'Marketplace',value:s.fees,color:'#FF3B8B'},
-    {label:'MEI',value:s.mei,color:'#00E676'}
+    {label:'MEI',value:s.mei,color:'#00C2FF'}
   ];
   const total=parts.reduce((t,p)=>t+p.value,0)||1;
   let acc=0;
@@ -1203,13 +1203,13 @@ function renderCashflowChart(orders){
     return `${i?'L':'M'}${x.toFixed(1)} ${y.toFixed(1)}`;
   }).join(' ');
   return `<div class="cashflow-card"><svg class="cashflow-svg" viewBox="0 0 ${w} ${h}" aria-label="Fluxo de caixa">
-    <defs><linearGradient id="cashFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#00E676" stop-opacity=".32"/><stop offset="1" stop-color="#00E676" stop-opacity="0"/></linearGradient></defs>
+    <defs><linearGradient id="cashFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#00C2FF" stop-opacity=".32"/><stop offset="1" stop-color="#3B82F6" stop-opacity="0"/></linearGradient></defs>
     <path d="${pathFor('net')} L ${w-p} ${h-p} L ${p} ${h-p} Z" fill="url(#cashFill)"/>
-    <path d="${pathFor('net')}" fill="none" stroke="#00E676" stroke-width="4" stroke-linecap="round"/>
-    <path d="${pathFor('profit')}" fill="none" stroke="#00CFFF" stroke-width="3" stroke-linecap="round"/>
-    <path d="${pathFor('reserve')}" fill="none" stroke="#FF8C00" stroke-width="3" stroke-linecap="round" stroke-dasharray="5 6"/>
+    <path d="${pathFor('net')}" fill="none" stroke="#00C2FF" stroke-width="4" stroke-linecap="round"/>
+    <path d="${pathFor('profit')}" fill="none" stroke="#3B82F6" stroke-width="3" stroke-linecap="round"/>
+    <path d="${pathFor('reserve')}" fill="none" stroke="#F97316" stroke-width="3" stroke-linecap="round" stroke-dasharray="5 6"/>
     ${data.map((d,i)=>`<text x="${p+i*(w-p*2)/Math.max(1,data.length-1)}" y="${h-5}" fill="#8899BB" font-size="9" text-anchor="middle">${d.label}</text>`).join('')}
-  </svg><div class="legend"><div><span style="background:#00E676"></span>Recebido por dia</div><div><span style="background:#00CFFF"></span>Lucro por dia</div><div><span style="background:#FF8C00"></span>Separação por dia</div></div></div>`;
+  </svg><div class="legend"><div><span style="background:#00C2FF"></span>Recebido por dia</div><div><span style="background:#00C2FF"></span>Lucro por dia</div><div><span style="background:#F97316"></span>Separação por dia</div></div></div>`;
 }
 function renderStoreComparison(orders){
   const cards=erpStores().filter(x=>x[0]!=='all').map(([id,label])=>{
@@ -1260,9 +1260,9 @@ function refFilters(){
   <div class="ref-pills">${erpStores().map(([id,label])=>`<button class="${analysisFilters.store===id?'on':''}" onclick="analysisFilters.store='${id}';renderContent()">${label}</button>`).join('')}</div>
   ${analysisFilters.period==='custom'?`<div class="ref-dates"><input class="fi" type="date" value="${analysisFilters.from}" onchange="analysisFilters.from=this.value;renderContent()"><input class="fi" type="date" value="${analysisFilters.to}" onchange="analysisFilters.to=this.value;renderContent()"></div>`:''}</div>`;
 }
-function refSparkline(values,color='#7ED6A5',fill=false){
+function refSparkline(values,color='#00C2FF',fill=false){
   const data=(values||[]).map(Number).filter(Number.isFinite);
-  if(!data.length)return '<svg class="ref-spark" viewBox="0 0 120 40"><path d="M0 30 L25 24 L45 28 L70 15 L92 22 L120 10" fill="none" stroke="#7ED6A5" stroke-width="3"/></svg>';
+  if(!data.length)return '<svg class="ref-spark" viewBox="0 0 120 40"><path d="M0 30 L25 24 L45 28 L70 15 L92 22 L120 10" fill="none" stroke="#00C2FF" stroke-width="3"/></svg>';
   const w=120,h=40,min=Math.min(...data),max=Math.max(...data),span=max-min||1;
   const pts=data.map((v,i)=>`${i*(w/Math.max(1,data.length-1))},${h-5-((v-min)/span)*(h-12)}`);
   const d=pts.map((p,i)=>(i?'L':'M')+p).join(' ');
@@ -1285,13 +1285,13 @@ function refTopSummary(orders,s,available,margin){
     <div class="ref-summary-block">
       <div class="ref-label">Lucro livre</div>
       <div class="ref-money green">${brl(s.profit)}</div>
-      ${refSparkline(profitSeries,'#7ED6A5',true)}
+      ${refSparkline(profitSeries,'#00C2FF',true)}
       <div class="ref-summary-foot"><span>Caiu na sua conta:<b>${brl(s.net)}</b></span><span>Pedidos:<b>${orders.length}</b></span></div>
     </div>
     <div class="ref-summary-block available">
       <div class="ref-label">Dinheiro disponível</div>
       <div class="ref-money">${brl(available)}</div>
-      ${refSparkline(netSeries,'#8ADFB2',true)}
+      ${refSparkline(netSeries,'#3B82F6',true)}
       <div class="ref-summary-foot"><span>Margem real:<b>${pct(margin)}</b></span><span>Produtos:<b>${s.qty}</b></span></div>
     </div>
     <div class="ref-summary-visual">${refBars(netSeries.length?netSeries:[15,35,54,78,41,70,46,65])}</div>
@@ -1337,7 +1337,7 @@ function refStoreCards(orders){
   return `<section class="ref-stores">${stats.map(s=>{
     const subset=orders.filter(o=>o.store===s.id), series=refDailyValues(subset,'profit');
     return `<div class="ref-store-card"><div class="ref-store-left"><div class="ref-store-logo ${storeLogoClass(s.id)}">${s.id==='TikTok Shop'?'♪':'S'}</div><b>${esc(s.label)}</b></div>
-    <div class="ref-store-main"><span>Profit:</span><strong>${brl(s.profit)}</strong>${refSparkline(series,'#7ED6A5')}</div>
+    <div class="ref-store-main"><span>Profit:</span><strong>${brl(s.profit)}</strong>${refSparkline(series,'#00C2FF')}</div>
     <div class="ref-store-metrics"><span>recebido <b>${brl(s.net)}</b></span><span>custos <b>${brl(Math.max(0,s.net-s.profit))}</b></span><span>margem <b>${pct(s.margin)}</b></span><span>ticket <b>${brl(s.ticket)}</b></span></div></div>`;
   }).join('')}</section>`;
 }
@@ -1720,4 +1720,256 @@ function findProductMatchLegacyFinal(o){
     if(score>bestScore){best=p;bestScore=score;}
   });
   return bestScore>=35?{product:best,confidence:Math.min(.84,bestScore/100),method:'nome parecido'}:{product:null,confidence:0,method:'none'};
+}
+
+/* Full-width graphite/cyan SaaS UI overrides */
+function jmPageHead(eyebrow,title,subtitle,actions=''){
+  return `<section class="ref-card jm-page-head"><div class="jm-page-title"><span>${esc(eyebrow)}</span><h2>${esc(title)}</h2><p>${esc(subtitle)}</p></div>${actions?`<div class="jm-page-actions">${actions}</div>`:''}</section>`;
+}
+function jmInitials(text){
+  return esc(String(text||'JM').trim().slice(0,2).toUpperCase()||'JM');
+}
+function renderErpProducts(){
+  const content=document.getElementById('content'); if(!content)return;
+  const orders=filteredOrders(), products=productPerformance(orders);
+  const rankers={
+    sold:(a,b)=>b.qty-a.qty, profit:(a,b)=>b.profit-a.profit, margin:(a,b)=>b.margin-a.margin,
+    lowMargin:(a,b)=>a.margin-b.margin, loss:(a,b)=>a.profit-b.profit, slow:(a,b)=>a.qty-b.qty
+  };
+  const labels={sold:'Mais vendidos',profit:'Mais lucrativos',margin:'Maior margem',lowMargin:'Menor margem',loss:'Prejuízo',slow:'Pouca saída'};
+  const rows=[...products].sort(rankers[erpProductRank]||rankers.profit);
+  const actions=`<button class="btn btn-primary" onclick="openStoreProductImport()">Importar produtos da loja</button><button class="btn btn-secondary" onclick="swTab('calc')">Cadastrar manual</button>`;
+  content.innerHTML=`<div class="ref-dashboard jm-page jm-products-page">
+    ${jmPageHead('Produtos','Central de produtos','Fotos reais, SKU, itemId, vendas, custos e margem por produto.',actions)}
+    ${refFilters()}
+    <section class="ref-card jm-panel"><h3>Catálogo de gestão <small>${rows.length} produtos</small></h3>
+      <div class="product-rank-tabs">${Object.keys(labels).map(k=>`<button class="${erpProductRank===k?'on':''}" onclick="erpProductRank='${k}';renderErpProducts()">${labels[k]}</button>`).join('')}</div>
+      ${rows.length?`<div class="jm-products-grid">${rows.map(renderErpProductCard).join('')}</div>`:'<div class="empty"><div class="ei">JM</div><div>Importe relatórios para ver performance por produto.</div></div>'}
+    </section>
+  </div>`;
+}
+function renderErpProductCard(p){
+  const h=erpHealth(p.margin,p.profit);
+  const badges=[];
+  if(p.qty>=20)badges.push(['good','Mais vendido']);
+  if(p.profit>0&&p.margin>=45)badges.push(['good','Excelente']);
+  if(p.margin<20)badges.push(['warn','Margem baixa']);
+  if(p.profit<0)badges.push(['bad','Prejuízo']);
+  if(!p.linked)badges.push(['bad','Sem vínculo']);
+  if(!p.sku)badges.push(['warn','Sem SKU']);
+  return `<div class="erp-product-card" onclick="openProductDashboard('${ea(p.id)}')">
+    ${p.photo?`<img class="erp-product-img" src="${ea(p.photo)}" alt="${ea(p.name)}">`:`<div class="erp-product-fallback">${jmInitials(p.name)}</div>`}
+    <div><div class="erp-product-name">${esc(p.name)}</div><div class="erp-product-meta">${marketplaceLabel(p.mainMarketplace)} | SKU ${esc(p.sku||'-')} | Item ${esc(p.itemId||'-')}<br>${p.qty} vendas</div>
+    <div class="erp-product-numbers"><div><span>Recebido</span><b>${brl(p.net)}</b></div><div><span>Custou</span><b>${brl(p.cost)}</b></div><div><span>Lucro</span><b>${brl(p.profit)}</b></div><div><span>Margem</span><b>${pct(p.margin)}</b></div></div>
+    <div class="badge-row"><span class="biz-badge ${h.cls}">${h.label}</span>${badges.map(([cls,b])=>`<span class="biz-badge ${cls}">${b}</span>`).join('')}</div></div>
+  </div>`;
+}
+function renderImportsPage(){
+  const content=document.getElementById('content'); if(!content)return;
+  content.innerHTML=`<div class="ref-dashboard jm-page jm-imports-page">
+    ${jmPageHead('Importações','Importação em massa','CSV e XLSX misturados da Shopee e TikTok, com revisão antes de salvar.')}
+    <div class="jm-import-grid">
+      <div class="jm-import-main">${renderImportView()}${importReview?`<div id="import-review">${renderImportReviewHtml()}</div>`:'<div id="import-review"></div>'}</div>
+      <section class="ref-card jm-panel jm-import-side"><h3>Histórico de importações <small>${marketplaceImports.length} lotes</small></h3>${renderImportHistory()}</section>
+    </div>
+  </div>`;
+}
+function renderImportView(){
+  return `<section class="ref-card jm-panel"><h3>Selecionar arquivos <small>Shopee + TikTok</small></h3>
+    <div class="import-stepper"><div class="import-step"><b>1.</b> Selecione vários CSV/XLSX juntos.</div><div class="import-step"><b>2.</b> O app categoriza marketplace, loja e período.</div><div class="import-step"><b>3.</b> Duplicados são ignorados e o lucro é calculado.</div></div>
+    <div class="file-drop"><input class="fi" type="file" id="market-files" accept=".xlsx,.csv" multiple onchange="processMarketplaceFiles([...this.files])"><div class="muted-note">Suporta Shopee Income, Order.completed, Order.shipping, Enviado pedido CSV e TikTok income.</div></div>
+  </section>`;
+}
+function renderImportHistory(){
+  if(!marketplaceImports.length)return '<div class="empty"><div class="ei">JM</div><div>Nenhuma importação confirmada ainda.</div></div>';
+  return `<div class="jm-history-list">${marketplaceImports.slice(0,20).map(i=>`<div class="store-card"><div><b>${esc(i.name||i.id)}</b><div class="store-meta">${new Date(i.createdAt||Date.now()).toLocaleString('pt-BR')} | ${i.files||0} arquivos<br>${i.newOrders||0} novos | ${i.duplicates||0} duplicados | ${i.unlinked||0} pendentes</div></div><div class="store-val">${brl(i.net||0)}<br><small>${esc(i.status||'importado')}</small></div></div>`).join('')}</div>`;
+}
+function renderImportReviewHtml(){
+  const r=importReview, orders=r.orders.map(o=>enrichOrder(o)), s=summarizeOrders(orders);
+  return `<section class="ref-card jm-panel"><h3>Resumo final da importação <small>revise antes de salvar</small></h3>
+    <div class="erp-grid">${erpCard('ARQ','Arquivos analisados',String(r.summaries.length),'info')}${erpCard('PED','Pedidos encontrados',String(orders.length),'info')}${erpCard('NOV','Pedidos novos',String(r.newOrders.length),'good')}${erpCard('DUP','Duplicados ignorados',String(r.duplicates.length),r.duplicates.length?'warn':'good')}${erpCard('VIN','Produtos vinculados',String(orders.filter(o=>o.linkedProductId).length),'good')}${erpCard('PEN','Produtos pendentes',String(orders.filter(o=>!o.linkedProductId).length),orders.some(o=>!o.linkedProductId)?'warn':'good')}${erpCard('R$','Valor importado',brl(s.net),'info')}${erpCard('LUC','Lucro calculado',brl(s.profit),s.profit>=0?'good':'bad')}</div>
+    <div class="review-list" style="margin-top:10px"><table class="mini-table"><thead><tr><th>Arquivo</th><th>Tipo</th><th>Pedidos</th></tr></thead><tbody>${r.summaries.map(x=>`<tr><td>${esc(x.file)}</td><td>${esc(x.kind)}</td><td class="num">${x.orders}</td></tr>`).join('')}</tbody></table></div>
+    ${r.errors.length?`<div class="muted-note" style="color:var(--red)">${r.errors.map(esc).join('<br>')}</div>`:''}
+    <div class="jm-action-row"><button class="btn btn-save" onclick="confirmMarketplaceImport()">Confirmar importação</button><button class="btn btn-secondary" onclick="analysisFilters.health='unlinked';swTab('produtos')">Corrigir vínculos</button><button class="btn btn-danger" onclick="importReview=null;renderContent()">Cancelar</button></div>
+  </section>`;
+}
+function renderPricingView(){
+  const catalog=typeof mergedProductCatalog==='function'?mergedProductCatalog():localProducts;
+  if(!erpPricingProductId&&catalog[0])erpPricingProductId=catalog[0].id;
+  const product=catalog.find(p=>p.id===erpPricingProductId)||catalog[0]||null;
+  const cost=product?productUnitCost(product,0).total:0;
+  const price=Number(erpPricingPrice)||0;
+  const actions=`<button class="btn btn-primary" onclick="swTab('calc')">Abrir cadastro completo</button>`;
+  return `<div class="ref-dashboard jm-page jm-pricing-page">
+    ${jmPageHead('Precificação','Simulador profissional','Compare Shopee, TikTok e venda direta pelo dinheiro que realmente sobra.',actions)}
+    <div class="jm-pricing-grid">
+      <section class="ref-card jm-panel jm-pricing-main"><h3>Quanto sobra se vender por...</h3>
+        <select class="fi" onchange="erpPricingProductId=this.value;renderContent()">${catalog.map(p=>`<option value="${p.id}" ${product&&product.id===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select>
+        <label class="fl">Preço de venda</label><input class="fi" type="number" value="${price}" oninput="erpPricingPrice=parseMoneyBR(this.value);renderContent()">
+        <div class="pricing-sim-grid">${renderChannelSim('Shopee','shopee',price,cost)}${renderChannelSim('TikTok Shop','tiktok',price,cost)}${renderChannelSim('Venda direta','direct',price,cost)}</div>
+      </section>
+      <section class="ref-card jm-panel jm-pricing-side"><h3>Preço ideal <small>Shopee como base</small></h3><div class="ideal-grid jm-ideal-grid">${idealCard('Preço mínimo',priceForMargin(cost,'shopee',0))}${idealCard('Preço saudável',priceForMargin(cost,'shopee',20))}${idealCard('Recomendado',priceForMargin(cost,'shopee',30))}${idealCard('Premium',priceForMargin(cost,'shopee',50))}</div></section>
+    </div>
+    ${renderPricingProducts()}
+  </div>`;
+}
+function renderPricingProducts(){
+  const catalog=typeof mergedProductCatalog==='function'?mergedProductCatalog():localProducts;
+  if(!catalog.length)return '<section class="ref-card jm-panel"><div class="empty"><div class="ei">JM</div><div>Cadastre produtos para simular preços profissionais.</div></div></section>';
+  return `<section class="ref-card jm-panel"><h3>Comparacao real por produto <small>${catalog.length} no catalogo</small></h3><div class="jm-products-grid">${catalog.slice(0,20).map(renderPricingProductCard).join('')}</div></section>`;
+}
+function renderPricingProductCard(p){
+  const c=productUnitCost(p,0), min=priceForMargin(c.total,'shopee',0), sh30=priceForMargin(c.total,'shopee',30), tk30=priceForMargin(c.total,'tiktok',30);
+  const current=Number(p.marketplaceSettings?.shopee?.salePrice ?? p.price)||0, health=current&&current<min?'bad':current&&current<priceForMargin(c.total,'shopee',10)?'warn':'ok';
+  const weight=p.costs?.weightGrams??p.weight??0, hours=p.costs?.printTimeHours??p.printH??0;
+  return `<div class="erp-product-card"><div>${p.photoUrl||p.photo?`<img class="erp-product-img" src="${ea(p.photoUrl||p.photo)}" alt="${ea(p.name)}">`:`<div class="erp-product-fallback">${jmInitials(p.name)}</div>`}</div><div><div class="erp-product-name">${esc(p.name)}</div><div class="erp-product-meta">SKU ${esc(p.sku||'-')} | custo técnico ${brl(c.total)} | ${weight}g | ${hours}h</div>
+    <div class="erp-product-numbers"><div><span>Mínimo</span><b>${brl(min)}</b></div><div><span>Shopee 30%</span><b>${brl(sh30)}</b></div><div><span>TikTok 30%</span><b>${brl(tk30)}</b></div><div><span>Status</span><b>${health==='bad'?'Baixo':health==='warn'?'Atenção':'Saudável'}</b></div></div>
+    <div class="cost-bars"><span style="width:${Math.min(100,c.filament/c.total*100||0)}%;background:var(--cyan)"></span><span style="width:${Math.min(100,c.energy/c.total*100||0)}%;background:var(--orange)"></span><span style="width:${Math.min(100,(c.packaging+c.bubble)/c.total*100||0)}%;background:var(--blue)"></span></div></div></div>`;
+}
+function renderSettingsPage(){
+  const cfg=getMarketplaceSettings();
+  return `<div class="ref-dashboard jm-page jm-settings-page">
+    ${jmPageHead('Configurações','Custos e lojas','Ajustes globais usados em precificação, importação e dashboard financeiro.')}
+    <div class="jm-settings-grid">
+      <section class="ref-card jm-panel jm-settings-main"><h3>Custos globais <small>produção e fiscal</small></h3>
+        <div class="filter-row"><input class="fi" id="mc-fil" type="number" value="${cfg.filamentKgPrice}" placeholder="Filamento R$/kg"><input class="fi" id="mc-kwh" type="number" value="${cfg.energyKwhPrice}" placeholder="Energia R$/kWh"></div>
+        <div class="filter-row"><input class="fi" id="mc-cons" type="number" value="${cfg.printerKwhHour}" placeholder="kWh/h impressora"><input class="fi" id="mc-das" type="number" value="${cfg.dasMeiMonthly}" placeholder="DAS MEI"></div>
+        <div class="filter-row"><input class="fi" id="mc-loss" type="number" value="${cfg.lossPct}" placeholder="Perdas %"><input class="fi" id="mc-post" type="number" value="${cfg.postProcessCost}" placeholder="Pos-processamento"></div>
+        <div class="filter-row"><input class="fi" id="mc-shp" type="number" value="${cfg.shopeeCommissionPct}" placeholder="Shopee %"><input class="fi" id="mc-tkt" type="number" value="${cfg.tiktokCommissionPct}" placeholder="TikTok %"></div>
+        <div class="jm-action-row"><button class="btn btn-save" onclick="saveMarketCfgUI()">Salvar custos globais</button><button class="btn btn-secondary" onclick="openConfig()">Abrir configurações antigas</button></div>
+      </section>
+      <section class="ref-card jm-panel jm-settings-side"><h3>Lojas ativas</h3><div class="store-grid">${erpStores().filter(x=>x[0]!=='all').map(([id,label])=>`<div class="store-card"><div><b>${label}</b><div class="store-meta">Usada em filtros, dashboards, importações e vínculos.</div></div><div class="store-val">Ativa</div></div>`).join('')}</div></section>
+    </div>
+  </div>`;
+}
+function jmIsoDay(d){
+  return new Date(d.getFullYear(),d.getMonth(),d.getDate()).toISOString().slice(0,10);
+}
+function jmChartRangeDays(){
+  if(analysisFilters.period==='today')return 7;
+  if(analysisFilters.period==='7d')return 7;
+  if(analysisFilters.period==='30d')return 30;
+  if(analysisFilters.period==='custom'&&analysisFilters.from&&analysisFilters.to){
+    const a=new Date(analysisFilters.from+'T00:00:00'), b=new Date(analysisFilters.to+'T00:00:00');
+    return Math.max(1,Math.min(365,Math.round((b-a)/86400000)+1));
+  }
+  return 30;
+}
+function jmChartActiveRange(){
+  if(analysisFilters.period==='7d')return '7d';
+  if(analysisFilters.period==='30d')return '30d';
+  if(analysisFilters.period==='custom'&&analysisFilters.from&&analysisFilters.to){
+    const d=jmChartRangeDays();
+    if(d>=355)return '12m';
+    if(d>=170)return '6m';
+    if(d>=80)return '3m';
+  }
+  return analysisFilters.period==='today'?'7d':'30d';
+}
+function jmSetChartPeriod(range){
+  const today=new Date(); today.setHours(0,0,0,0);
+  const setCustom=(days)=>{
+    const from=new Date(today.getTime()-(days-1)*86400000);
+    analysisFilters.period='custom';
+    analysisFilters.from=jmIsoDay(from);
+    analysisFilters.to=jmIsoDay(today);
+  };
+  if(range==='7d')analysisFilters.period='7d';
+  else if(range==='30d')analysisFilters.period='30d';
+  else if(range==='3m')setCustom(90);
+  else if(range==='6m')setCustom(180);
+  else if(range==='12m')setCustom(365);
+  renderContent();
+}
+function jmMoneyShort(v){
+  const n=Math.abs(Number(v)||0), sign=Number(v)<0?'-':'';
+  if(n>=1000000)return sign+'R$ '+(n/1000000).toLocaleString('pt-BR',{maximumFractionDigits:1})+' mi';
+  if(n>=1000)return sign+'R$ '+(n/1000).toLocaleString('pt-BR',{maximumFractionDigits:1})+' mil';
+  return sign+'R$ '+n.toLocaleString('pt-BR',{maximumFractionDigits:0});
+}
+function jmChartDateLabel(iso){
+  if(!iso)return '';
+  const d=new Date(iso+'T00:00:00');
+  return d.toLocaleDateString('pt-BR',{day:'2-digit',month:'short'}).replace('.','');
+}
+function jmFinanceChartSeries(orders){
+  const days=jmChartRangeDays();
+  const today=new Date(); today.setHours(0,0,0,0);
+  const start=new Date(today.getTime()-(days-1)*86400000);
+  const byDay={};
+  for(let t=start.getTime();t<=today.getTime();t+=86400000)byDay[jmIsoDay(new Date(t))]={net:0,profit:0,reserve:0};
+  orders.forEach(o=>{
+    const iso=parseDateFlexible(o.paymentDate||o.paidDate||o.date||o.orderDate);
+    if(!iso||!byDay[iso])return;
+    byDay[iso].net+=Number(o.net)||0;
+    byDay[iso].profit+=Number(o.profit)||0;
+    const c=o.costParts||{};
+    byDay[iso].reserve+=(Number(c.filament)||0)+(Number(c.energy)||0)+(Number(c.packaging)||0)+(Number(c.bubble)||0)+(Number(c.mei)||0)+(Number(c.other)||0);
+  });
+  let cumulative=0;
+  return Object.keys(byDay).sort().map(iso=>{
+    cumulative+=byDay[iso].net;
+    return {iso,label:jmChartDateLabel(iso),net:byDay[iso].net,profit:byDay[iso].profit,reserve:byDay[iso].reserve,value:cumulative};
+  });
+}
+function jmSmoothPath(points){
+  if(!points.length)return '';
+  if(points.length===1)return `M${points[0].x} ${points[0].y}`;
+  let d=`M${points[0].x.toFixed(1)} ${points[0].y.toFixed(1)}`;
+  for(let i=0;i<points.length-1;i++){
+    const p0=points[i-1]||points[i], p1=points[i], p2=points[i+1], p3=points[i+2]||p2;
+    const cp1={x:p1.x+(p2.x-p0.x)/6,y:p1.y+(p2.y-p0.y)/6};
+    const cp2={x:p2.x-(p3.x-p1.x)/6,y:p2.y-(p3.y-p1.y)/6};
+    d+=` C${cp1.x.toFixed(1)} ${cp1.y.toFixed(1)},${cp2.x.toFixed(1)} ${cp2.y.toFixed(1)},${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`;
+  }
+  return d;
+}
+function jmFinanceChart(orders){
+  const series=jmFinanceChartSeries(orders), s=summarizeOrders(orders), active=jmChartActiveRange();
+  if(!series.length)return '';
+  const w=920,h=320,left=54,right=24,top=28,bottom=44;
+  const vals=series.map(d=>d.value), max=Math.max(...vals,1), min=Math.min(...vals,0), span=max-min||1;
+  const points=series.map((d,i)=>({
+    x:left+(series.length===1?0:i*(w-left-right)/(series.length-1)),
+    y:h-bottom-((d.value-min)/span)*(h-top-bottom),
+    data:d
+  }));
+  const line=jmSmoothPath(points), area=`${line} L ${points[points.length-1].x.toFixed(1)} ${h-bottom} L ${points[0].x.toFixed(1)} ${h-bottom} Z`;
+  const yTicks=[0,.25,.5,.75,1].map(t=>({y:h-bottom-t*(h-top-bottom),v:min+t*span}));
+  const step=Math.max(1,Math.floor((series.length-1)/5));
+  const xTicks=series.filter((_,i)=>i%step===0||i===series.length-1).slice(-6);
+  const markerEvery=Math.max(1,Math.floor(series.length/5));
+  const rangeBtns=[['7d','7D'],['30d','30D'],['3m','3M'],['6m','6M'],['12m','12M']];
+  return `<section class="ref-card jm-chart-card">
+    <div class="jm-chart-head"><div><div class="jm-chart-title">Evolução do caixa</div><div class="jm-chart-sub">Recebido acumulado com base nas importações do período.</div></div>
+      <div class="jm-chart-tabs">${rangeBtns.map(([id,label])=>`<button class="${active===id?'on':''}" onclick="jmSetChartPeriod('${id}')">${label}</button>`).join('')}</div></div>
+    <svg class="jm-chart-svg" viewBox="0 0 ${w} ${h}" role="img" aria-label="Evolução do caixa">
+      <defs>
+        <linearGradient id="jmCashArea" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#00C2FF" stop-opacity=".34"/><stop offset=".72" stop-color="#00C2FF" stop-opacity=".10"/><stop offset="1" stop-color="#00C2FF" stop-opacity="0"/></linearGradient>
+        <linearGradient id="jmCashLine" x1="0" x2="1" y1="0" y2="0"><stop offset="0" stop-color="#3B82F6"/><stop offset=".45" stop-color="#00C2FF"/><stop offset="1" stop-color="#22D3EE"/></linearGradient>
+      </defs>
+      ${yTicks.map(t=>`<line class="grid-line" x1="${left}" y1="${t.y.toFixed(1)}" x2="${w-right}" y2="${t.y.toFixed(1)}"/><text class="axis-label" x="${left-8}" y="${(t.y+4).toFixed(1)}" text-anchor="end">${jmMoneyShort(t.v)}</text>`).join('')}
+      ${xTicks.map(d=>{const p=points.find(x=>x.data.iso===d.iso)||points[0];return `<line class="grid-line" x1="${p.x.toFixed(1)}" y1="${top}" x2="${p.x.toFixed(1)}" y2="${h-bottom}"/><text class="axis-label" x="${p.x.toFixed(1)}" y="${h-12}" text-anchor="middle">${d.label}</text>`;}).join('')}
+      <path d="${area}" fill="url(#jmCashArea)"/>
+      <path class="jm-line" d="${line}" fill="none" stroke="url(#jmCashLine)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+      ${points.filter((_,i)=>i%markerEvery===0||i===points.length-1).map(p=>`<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="4.2" fill="#00F5FF" stroke="#0B0F14" stroke-width="2"/>`).join('')}
+    </svg>
+    <div class="jm-chart-footer"><div><b>Movimentações recentes</b><span>Recebido ${brl(s.net)} | lucro ${brl(s.profit)} | separar ${brl(erpReserveTotal(s))}</span></div><div class="jm-chart-time">${new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</div></div>
+  </section>`;
+}
+function renderFinanceiroView(){
+  const orders=filteredOrders(), s=summarizeOrders(orders), reserve=erpReserveTotal(s), available=s.net-reserve, margin=s.net?s.profit/s.net*100:0;
+  const bestProduct=refChampionProduct(orders), bestStore=erpTopStore(orders), bestMarketplace=erpTopMarketplace(orders);
+  return `<div class="ref-dashboard">
+    ${refFilters()}
+    <div class="ref-board">
+      ${refTopSummary(orders,s,available,margin)}
+      ${refHighlights(bestProduct,bestStore,bestMarketplace)}
+      ${refCostCard(s,reserve,orders)}
+      ${refUnlinkedCard(orders)}
+      ${refStoreCards(orders)}
+    </div>
+    ${jmFinanceChart(orders)}
+    <button class="btn btn-export" onclick="exportAnalysisCsv()">Exportar CSV da análise</button>
+  </div>`;
 }
