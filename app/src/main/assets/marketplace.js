@@ -1057,6 +1057,26 @@ function erpTopMarketplace(orders){
 function erpCard(icon,label,value,cls='info',hint=''){
   return `<div class="erp-card ${cls}"><div class="ico">${icon}</div><div class="lbl">${label}</div><div class="val">${value}</div>${hint?`<div class="hint">${hint}</div>`:''}</div>`;
 }
+function erpStoreStats(orders){
+  return erpStores().filter(x=>x[0]!=='all').map(([id,label])=>{
+    const subset=orders.filter(o=>o.store===id), s=summarizeOrders(subset), margin=s.net?s.profit/s.net*100:0;
+    return {id,label,orders:subset.length,net:s.net,profit:s.profit,qty:s.qty,margin,ticket:erpTicket(s,subset)};
+  }).sort((a,b)=>b.profit-a.profit);
+}
+function production3dMetrics(orders){
+  const catalog=catalogProducts();
+  return orders.reduce((a,o)=>{
+    const product=catalog.find(p=>p.id===o.linkedProductId||p.legacyProductId===o.linkedProductId)||findProductMatch(o).product||{};
+    const qty=Number(o.qty)||1;
+    const pc=product.costs||{};
+    const weight=Number(pc.weightGrams ?? product.weight)||0;
+    const hours=Number(pc.printTimeHours ?? product.printH)||0;
+    a.grams+=weight*qty;
+    a.hours+=hours*qty;
+    a.products+=qty;
+    return a;
+  },{grams:0,hours:0,products:0});
+}
 function catalogProducts(){return typeof mergedProductCatalog==='function'?mergedProductCatalog():localProducts;}
 function erpFilters(){
   return `<div class="erp-section"><div class="erp-pills">${erpPeriodOptions().map(([id,label])=>`<button class="${analysisFilters.period===id?'on':''}" onclick="analysisFilters.period='${id}';renderContent()">${label}</button>`).join('')}</div>
@@ -1104,6 +1124,54 @@ function renderFinanceiroView(){
     <button class="btn btn-export" onclick="exportAnalysisCsv()">Exportar CSV da análise</button>
   </div>`;
 }
+function renderFinanceiroView(){
+  const orders=filteredOrders(), s=summarizeOrders(orders), prev=summarizeOrders(erpPreviousOrders());
+  const margin=s.net?s.profit/s.net*100:0, reserve=erpReserveTotal(s), available=s.net-reserve, prod=production3dMetrics(orders);
+  const bestProduct=erpTopProduct(orders,'profit'), bestStore=erpTopStore(orders), bestMarketplace=erpTopMarketplace(orders);
+  return `<div class="erp-shell">
+    ${erpFilters()}
+    <section class="finance-hero-grid">
+      <div class="erp-hero hero-available">
+        <div class="erp-eyebrow">Dinheiro disponível</div>
+        <div class="erp-big">${brl(available)}</div>
+        <div class="erp-sub">Recebido menos o que precisa separar. ${erpTrend(s.net,prev.net)} em recebimento no período.</div>
+      </div>
+      <div class="erp-card received-card info"><div class="ico">💳</div><div class="lbl">Recebido</div><div class="val">${brl(s.net)}</div><div class="hint">Caiu na conta pela Shopee/TikTok.</div></div>
+      <div class="erp-card separate-now warn"><div class="ico">🧾</div><div class="lbl">Separar agora</div><div class="val">${brl(reserve)}</div><div class="hint">Filamento, energia, embalagem, MEI e manutenção.</div></div>
+    </section>
+    <div class="erp-grid kpi-strip">
+      ${erpCard('💼','Lucro livre',brl(s.profit),s.profit>=0?'good':'bad','Resultado real dos pedidos importados.')}
+      ${erpCard('📈','Margem real',pct(margin),margin>=25?'good':margin>=15?'warn':'bad',`${orders.length} pedidos no período`)}
+      ${erpCard('🧺','Produtos vendidos',String(s.qty),'info','Unidades vendidas no filtro atual.')}
+      ${erpCard('🎯','Ticket médio',brl(erpTicket(s,orders)),'info','Recebido líquido por pedido.')}
+    </div>
+    <section class="erp-section"><h3>Você precisa separar <small>${brl(reserve)} no total</small></h3>
+      <div class="reserve-list">
+        ${reserveRow('Filamento',s.filament)}${reserveRow('Energia',s.energy)}${reserveRow('Embalagens',s.packaging)}
+        ${reserveRow('MEI',s.mei)}${reserveRow('Manutenção e outros',s.other)}
+      </div>
+    </section>
+    <section class="erp-section"><h3>Produção 3D <small>operação do período</small></h3>
+      <div class="prod-kpi-grid">
+        ${productionKpi('Filamento consumido',(prod.grams/1000).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+' kg')}
+        ${productionKpi('Horas impressas',prod.hours.toLocaleString('pt-BR',{maximumFractionDigits:1})+' h')}
+        ${productionKpi('Produtos vendidos',String(prod.products))}
+        ${productionKpi('Ticket médio',brl(erpTicket(s,orders)))}
+      </div>
+    </section>
+    <section class="erp-section"><h3>Alertas importantes <small>o que agir primeiro</small></h3>${renderBusinessAlerts(orders)}</section>
+    <section class="erp-section"><h3>Destaques do período <small>decisão rápida</small></h3>
+      <div class="highlight-grid">
+        ${renderChampionProduct(bestProduct)}
+        ${erpCard('🏬','Loja campeã',bestStore?esc(bestStore.name):'Sem dados','info',bestStore?`${bestStore.orders} pedidos - ${brl(bestStore.profit)} de lucro`:'')}
+        ${erpCard('🛒','Marketplace campeão',bestMarketplace?marketplaceLabel(bestMarketplace.name):'Sem dados','info',bestMarketplace?`${brl(bestMarketplace.net)} recebidos`:'' )}
+      </div>
+    </section>
+    <section class="erp-section"><h3>Fluxo de caixa <small>recebido, lucro e separação</small></h3>${renderCashflowChart(orders)}</section>
+    <section class="erp-section"><h3>Ranking das lojas <small>performance real</small></h3>${renderStoreComparison(orders)}</section>
+    <button class="btn btn-export" onclick="exportAnalysisCsv()">Exportar CSV da análise</button>
+  </div>`;
+}
 function renderChampionProduct(p){
   if(!p)return erpCard('🏆','Produto campeão','Sem dados','good','Importe relatórios para descobrir.');
   return `<div class="erp-product-card" style="margin:0;grid-template-columns:74px 1fr">
@@ -1112,6 +1180,7 @@ function renderChampionProduct(p){
   </div>`;
 }
 function reserveRow(label,value){return `<div class="reserve-row"><span>${label}</span><b>${brl(value)}</b></div>`;}
+function productionKpi(label,value){return `<div class="prod-kpi"><span>${label}</span><b>${value}</b></div>`;}
 function marketplaceLabel(v){return v==='tiktokShop'?'TikTok Shop':v==='shopee'?'Shopee':v;}
 function dailySeries3(orders){
   const map={};
@@ -1162,6 +1231,30 @@ function renderBusinessAlerts(orders){
   if(!items.length)return '<div class="alert-item"><b>Tudo certo no período</b><span>sem alertas críticos</span></div>';
   return `<div class="alert-list">${items.map(([cls,title,body])=>`<div class="alert-item"><b>${title}</b><span class="${cls}">${esc(body)}</span></div>`).join('')}</div>`;
 }
+function renderStoreComparison(orders){
+  const stats=erpStoreStats(orders), max=Math.max(...stats.map(s=>Math.max(0,s.profit)),1);
+  if(!stats.length)return '<div class="muted-note">Sem lojas para comparar no período.</div>';
+  return `<div class="store-rank-grid">${stats.map((s,i)=>`<div class="store-rank-card ${i===0?'top':''}">
+    <div class="store-rank-head"><span>${i+1}</span><b>${esc(s.label)}</b></div>
+    <div class="store-rank-value">${brl(s.profit)}</div>
+    <div class="store-rank-meta">Recebido ${brl(s.net)} - ${s.orders} pedidos - margem ${pct(s.margin)}</div>
+    <div class="store-rank-bar"><i style="width:${Math.min(100,Math.max(4,s.profit/max*100))}%"></i></div>
+    <div class="store-rank-foot"><span>Ticket ${brl(s.ticket)}</span><span>${s.qty} un.</span></div>
+  </div>`).join('')}</div>`;
+}
+function renderBusinessAlerts(orders){
+  const products=productPerformance(orders);
+  const low=products.filter(p=>p.margin<20&&p.qty>0).slice(0,2);
+  const bad=products.filter(p=>p.profit<0).slice(0,2);
+  const unlinked=orders.filter(o=>!o.linkedProductId).slice(0,4);
+  const cards=[
+    ...unlinked.map(o=>({cls:'warn',title:'Produto sem vínculo',body:`${o.productName||o.importedProductName||o.orderId} - ${marketplaceLabel(o.marketplace)} - ${o.store||''}`,action:`<button onclick="openLinkProduct('${ea(o.id)}')">Vincular</button>`})),
+    ...bad.map(p=>({cls:'bad',title:'Produto em prejuízo',body:`${p.name}: ${brl(p.profit)}`,action:''})),
+    ...low.map(p=>({cls:'warn',title:'Margem baixa',body:`${p.name}: margem ${pct(p.margin)}`,action:''}))
+  ].slice(0,6);
+  if(!cards.length)return '<div class="alert-item"><b>Tudo certo no período</b><span>sem alertas críticos</span></div>';
+  return `<div class="alert-list alert-action-list">${cards.map(c=>`<div class="alert-item action ${c.cls}"><div><b>${esc(c.title)}</b><span>${esc(c.body)}</span></div>${c.action}</div>`).join('')}</div>`;
+}
 function productPerformance(orders=filteredOrders()){
   const catalog=catalogProducts();
   const byId={};
@@ -1207,7 +1300,7 @@ function renderErpProducts(){
     <div class="compact-actions" style="margin-bottom:10px"><button class="btn btn-primary" onclick="openStoreProductImport()">Importar produtos da loja</button><button class="btn btn-secondary" onclick="swTab('calc')">Cadastrar manual</button></div>
     <div class="product-rank-tabs">${Object.keys(labels).map(k=>`<button class="${erpProductRank===k?'on':''}" onclick="erpProductRank='${k}';renderErpProducts()">${labels[k]}</button>`).join('')}</div>
     ${rows.length?rows.map(renderErpProductCard).join(''):'<div class="empty"><div class="ei">📦</div><div>Importe relatórios para ver performance por produto.</div></div>'}
-  </section>${renderUnlinkedOrdersPanel(filteredOrders())}</div>`;
+  </section></div>`;
 }
 function renderErpProductCard(p){
   const h=erpHealth(p.margin,p.profit);
