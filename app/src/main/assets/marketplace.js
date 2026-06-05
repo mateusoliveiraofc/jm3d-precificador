@@ -1255,6 +1255,111 @@ function renderBusinessAlerts(orders){
   if(!cards.length)return '<div class="alert-item"><b>Tudo certo no período</b><span>sem alertas críticos</span></div>';
   return `<div class="alert-list alert-action-list">${cards.map(c=>`<div class="alert-item action ${c.cls}"><div><b>${esc(c.title)}</b><span>${esc(c.body)}</span></div>${c.action}</div>`).join('')}</div>`;
 }
+function refFilters(){
+  return `<div class="ref-filterbar"><div class="ref-pills">${erpPeriodOptions().map(([id,label])=>`<button class="${analysisFilters.period===id?'on':''}" onclick="analysisFilters.period='${id}';renderContent()">${label}</button>`).join('')}</div>
+  <div class="ref-pills">${erpStores().map(([id,label])=>`<button class="${analysisFilters.store===id?'on':''}" onclick="analysisFilters.store='${id}';renderContent()">${label}</button>`).join('')}</div>
+  ${analysisFilters.period==='custom'?`<div class="ref-dates"><input class="fi" type="date" value="${analysisFilters.from}" onchange="analysisFilters.from=this.value;renderContent()"><input class="fi" type="date" value="${analysisFilters.to}" onchange="analysisFilters.to=this.value;renderContent()"></div>`:''}</div>`;
+}
+function refSparkline(values,color='#7ED6A5',fill=false){
+  const data=(values||[]).map(Number).filter(Number.isFinite);
+  if(!data.length)return '<svg class="ref-spark" viewBox="0 0 120 40"><path d="M0 30 L25 24 L45 28 L70 15 L92 22 L120 10" fill="none" stroke="#7ED6A5" stroke-width="3"/></svg>';
+  const w=120,h=40,min=Math.min(...data),max=Math.max(...data),span=max-min||1;
+  const pts=data.map((v,i)=>`${i*(w/Math.max(1,data.length-1))},${h-5-((v-min)/span)*(h-12)}`);
+  const d=pts.map((p,i)=>(i?'L':'M')+p).join(' ');
+  const fillPath=`${d} L ${w},${h} L 0,${h} Z`;
+  return `<svg class="ref-spark" viewBox="0 0 ${w} ${h}">${fill?`<path d="${fillPath}" fill="${color}" opacity=".16"/>`:''}<path d="${d}" fill="none" stroke="${color}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+}
+function refBars(values){
+  const data=(values||[]).map(v=>Math.max(0,Number(v)||0)).slice(-10), max=Math.max(...data,1);
+  return `<div class="ref-bars">${data.map(v=>`<i style="height:${Math.max(12,v/max*100)}%"></i>`).join('')}</div>`;
+}
+function refDailyValues(orders,field='net'){
+  return dailySeries3(orders).map(d=>Number(d[field])||0);
+}
+function refProductImage(src,alt='Produto'){
+  return src?`<img class="ref-product-img" src="${ea(src)}" alt="${ea(alt)}">`:`<div class="ref-product-img ref-product-fallback">${esc(String(alt||'Produto').slice(0,2).toUpperCase())}</div>`;
+}
+function refTopSummary(orders,s,available,margin){
+  const netSeries=refDailyValues(orders,'net'), profitSeries=refDailyValues(orders,'profit');
+  return `<section class="ref-card ref-summary">
+    <div class="ref-summary-block">
+      <div class="ref-label">Lucro livre</div>
+      <div class="ref-money green">${brl(s.profit)}</div>
+      ${refSparkline(profitSeries,'#7ED6A5',true)}
+      <div class="ref-summary-foot"><span>Caiu na sua conta:<b>${brl(s.net)}</b></span><span>Pedidos:<b>${orders.length}</b></span></div>
+    </div>
+    <div class="ref-summary-block available">
+      <div class="ref-label">Dinheiro disponível</div>
+      <div class="ref-money">${brl(available)}</div>
+      ${refSparkline(netSeries,'#8ADFB2',true)}
+      <div class="ref-summary-foot"><span>Margem real:<b>${pct(margin)}</b></span><span>Produtos:<b>${s.qty}</b></span></div>
+    </div>
+    <div class="ref-summary-visual">${refBars(netSeries.length?netSeries:[15,35,54,78,41,70,46,65])}</div>
+  </section>`;
+}
+function refCostCard(s,reserve,orders){
+  const prod=production3dMetrics(orders);
+  return `<section class="ref-card ref-costs"><h3>Análise de Custos e Separação</h3>
+    <div class="ref-cost-list">
+      ${reserveRow('Filamento',s.filament)}${reserveRow('Energia',s.energy)}${reserveRow('Embalagens',s.packaging)}
+      ${reserveRow('MEI',s.mei)}${reserveRow('Manutenção e outros',s.other)}
+    </div>
+    <div class="ref-separate">Preciso separar:<b>${brl(reserve)}</b></div>
+    <div class="ref-production mini"><span>kg <b>${(prod.grams/1000).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})}</b></span><span>horas <b>${prod.hours.toLocaleString('pt-BR',{maximumFractionDigits:1})}</b></span><span>vendidos <b>${prod.products}</b></span><span>ticket <b>${brl(erpTicket(s,orders))}</b></span></div>
+  </section>`;
+}
+function refUnlinkedCard(orders){
+  const unlinked=orders.filter(o=>!o.linkedProductId), rows=unlinked.slice(0,5);
+  return `<section class="ref-card ref-unlinked"><h3><span>Produtos sem vínculo (${unlinked.length})</span></h3>
+    ${rows.length?`<div class="ref-table-wrap"><table class="ref-table"><thead><tr><th></th><th>Nome</th><th>SKU ID</th><th>Loja</th><th>Ação</th></tr></thead><tbody>${rows.map((o,i)=>{
+      const match=findProductMatch(o).product||{}, photo=o.importedPhotoUrl||match.photoUrl||match.photo||'';
+      return `<tr><td>${i+1}</td><td><div class="ref-row-product">${refProductImage(photo,o.productName||o.importedProductName)}<b>${esc(o.productName||o.importedProductName||'Produto sem nome')}</b></div></td><td>${esc(o.sku||o.importedSku||o.itemId||o.importedItemId||'-')}</td><td>${esc(o.store||marketplaceLabel(o.marketplace))}</td><td><button onclick="openLinkProduct('${ea(o.id)}')">Vincular</button></td></tr>`;
+    }).join('')}</tbody></table></div>`:'<div class="ref-empty">Tudo vinculado no período.</div>'}
+  </section>`;
+}
+function refHighlights(bestProduct,bestStore,bestMarketplace){
+  return `<aside class="ref-card ref-highlights"><h3>Destaques do Período</h3>
+    <div class="ref-feature">
+      <div class="ref-feature-label">Produto campeão do período</div>
+      ${refProductImage(bestProduct?.photo,bestProduct?.name||'Produto campeão')}
+      <h4>${esc(bestProduct?.name||'Sem dados')}</h4>
+      <div class="ref-feature-grid"><span>${bestProduct?.qty||0} vendas</span><b>${brl(bestProduct?.profit||0)} lucro</b><span>margem ${pct(bestProduct?.margin||0)}</span><b>${brl(bestProduct?.qty?bestProduct.profit/bestProduct.qty:0)}</b></div>
+    </div>
+    <div class="ref-mini-grid">
+      <div class="ref-mini-card"><span>Loja campeã</span><b>${bestStore?esc(bestStore.name):'Sem dados'}</b></div>
+      <div class="ref-mini-card"><span>Marketplace campeão</span><b>${bestMarketplace?marketplaceLabel(bestMarketplace.name):'Sem dados'}</b></div>
+    </div>
+  </aside>`;
+}
+function storeLogoClass(id){return id==='TikTok Shop'?'tiktok':'shopee';}
+function refStoreCards(orders){
+  const stats=erpStoreStats(orders);
+  return `<section class="ref-stores">${stats.map(s=>{
+    const subset=orders.filter(o=>o.store===s.id), series=refDailyValues(subset,'profit');
+    return `<div class="ref-store-card"><div class="ref-store-left"><div class="ref-store-logo ${storeLogoClass(s.id)}">${s.id==='TikTok Shop'?'♪':'S'}</div><b>${esc(s.label)}</b></div>
+    <div class="ref-store-main"><span>Profit:</span><strong>${brl(s.profit)}</strong>${refSparkline(series,'#7ED6A5')}</div>
+    <div class="ref-store-metrics"><span>recebido <b>${brl(s.net)}</b></span><span>custos <b>${brl(Math.max(0,s.net-s.profit))}</b></span><span>margem <b>${pct(s.margin)}</b></span><span>ticket <b>${brl(s.ticket)}</b></span></div></div>`;
+  }).join('')}</section>`;
+}
+function refChampionProduct(orders){
+  const rows=productPerformance(orders).filter(p=>p.qty>0).sort((a,b)=>b.profit-a.profit);
+  return rows.find(p=>p.photo&&p.linked)||rows.find(p=>p.photo)||rows[0]||null;
+}
+function renderFinanceiroView(){
+  const orders=filteredOrders(), s=summarizeOrders(orders), reserve=erpReserveTotal(s), available=s.net-reserve, margin=s.net?s.profit/s.net*100:0;
+  const bestProduct=refChampionProduct(orders), bestStore=erpTopStore(orders), bestMarketplace=erpTopMarketplace(orders);
+  return `<div class="ref-dashboard">
+    ${refFilters()}
+    <div class="ref-board">
+      ${refTopSummary(orders,s,available,margin)}
+      ${refHighlights(bestProduct,bestStore,bestMarketplace)}
+      ${refCostCard(s,reserve,orders)}
+      ${refUnlinkedCard(orders)}
+      ${refStoreCards(orders)}
+    </div>
+    <button class="btn btn-export" onclick="exportAnalysisCsv()">Exportar CSV da análise</button>
+  </div>`;
+}
 function productPerformance(orders=filteredOrders()){
   const catalog=catalogProducts();
   const byId={};
