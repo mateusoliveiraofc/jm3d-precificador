@@ -1335,7 +1335,6 @@ function refTopSummary(orders,s,available,margin){
       <div class="spark-caption"><i style="background:#3B82F6"></i>Evolucao do recebido</div>
       <div class="ref-summary-foot"><span>Margem real:<b>${pct(margin)}</b></span><span>Produtos:<b>${s.qty}</b></span></div>
     </div>
-    <div class="ref-summary-visual">${refBars(netSeries.length?netSeries:[15,35,54,78,41,70,46,65])}</div>
   </section>`;
 }
 function refCostCard(s,reserve,orders){

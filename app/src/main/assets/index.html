@@ -942,22 +942,25 @@ body{background:#0B0F14;color:#F8FAFC}
     justify-content:flex-end;
   }
   .ref-board{
-    grid-template-columns:repeat(12,minmax(0,1fr));
+    width:100%;
+    max-width:calc(100vw - 24px);
+    grid-template-columns:minmax(0,1fr) minmax(0,1fr) clamp(300px,24vw,360px);
     grid-template-areas:
-      "summary summary summary summary summary summary summary summary highlight highlight highlight highlight"
-      "costs costs costs costs unlinked unlinked unlinked unlinked highlight highlight highlight highlight"
-      "stores stores stores stores stores stores stores stores stores stores stores stores";
+      "summary summary highlight"
+      "costs unlinked highlight"
+      "stores stores stores";
     align-items:stretch;
   }
   .ref-summary{
-    grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(108px,128px);
+    grid-template-columns:minmax(0,1fr) minmax(0,1fr);
     min-height:154px;
   }
+  .ref-summary-visual{display:none!important}
   .ref-highlights{min-height:312px}
   .ref-summary .ref-spark{
-    right:12px;
+    right:14px;
     top:42px;
-    width:112px;
+    width:118px;
     height:46px;
   }
   .ref-summary-foot{margin-top:20px}
