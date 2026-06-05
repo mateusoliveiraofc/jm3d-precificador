@@ -914,6 +914,77 @@ body{background:#0B0F14;color:#F8FAFC}
   .jm-chart-footer{grid-template-columns:1fr}
 }
 
+/* Finance alignment guard */
+.ref-dashboard,
+.ref-filterbar,
+.ref-board,
+.ref-board > *,
+.ref-summary,
+.ref-summary-block,
+.ref-highlights,
+.ref-costs,
+.ref-unlinked,
+.ref-stores,
+.ref-table-wrap{
+  min-width:0;
+}
+.ref-dashboard{overflow-x:hidden}
+.ref-summary{overflow:hidden}
+.ref-summary-block{align-content:start}
+.ref-summary .ref-spark{max-width:clamp(82px,10vw,126px)}
+.ref-table-wrap{max-width:100%}
+
+@media(min-width:1100px){
+  .ref-filterbar{
+    grid-template-columns:minmax(0,1fr) minmax(360px,.72fr);
+  }
+  .ref-filterbar > .ref-pills:nth-child(3){
+    justify-content:flex-end;
+  }
+  .ref-board{
+    grid-template-columns:repeat(12,minmax(0,1fr));
+    grid-template-areas:
+      "summary summary summary summary summary summary summary summary highlight highlight highlight highlight"
+      "costs costs costs costs unlinked unlinked unlinked unlinked highlight highlight highlight highlight"
+      "stores stores stores stores stores stores stores stores stores stores stores stores";
+    align-items:stretch;
+  }
+  .ref-summary{
+    grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(108px,128px);
+    min-height:154px;
+  }
+  .ref-highlights{min-height:312px}
+  .ref-summary .ref-spark{
+    right:12px;
+    top:42px;
+    width:112px;
+    height:46px;
+  }
+  .ref-summary-foot{margin-top:20px}
+}
+
+@media(min-width:700px) and (max-width:1099px){
+  .ref-filterbar > .ref-pills{
+    min-width:0;
+  }
+  .ref-pills{
+    overflow-x:auto;
+    scrollbar-width:none;
+  }
+  .ref-pills::-webkit-scrollbar{display:none}
+}
+
+@media(max-width:699px){
+  .ref-filterbar > .ref-pills{
+    min-width:0;
+  }
+  .ref-pills{
+    overflow-x:auto;
+    scrollbar-width:none;
+  }
+  .ref-pills::-webkit-scrollbar{display:none}
+}
+
 
 /* ── PIN SCREEN ── */
 #pin-screen{
