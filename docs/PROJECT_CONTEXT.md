@@ -18,6 +18,9 @@ O JM 3D Precificador calcula precos de produtos impressos em 3D e gerencia um ca
 - Compartilhamento de catalogo em HTML.
 - Upload e compressao local de foto.
 - PIN de acesso.
+- Importacao em lote de relatorios Shopee/TikTok.
+- Dashboard de lucro real por marketplace/loja.
+- Precificacao profissional por Shopee, TikTok Shop e venda direta.
 
 ## Arquitetura atual
 
@@ -45,12 +48,24 @@ O projeto tem uma camada Android pequena e a maior parte da regra de negocio den
 - Exporta HTML.
 - Gerencia configuracoes.
 
+`marketplace.js`:
+
+- Processa XLSX e CSV usando SheetJS local.
+- Detecta Shopee Income, Shopee Order.completed, TikTok income e TikTok Orders CSV.
+- Normaliza dinheiro, datas e nomes de colunas.
+- Evita duplicidade por marketplace, loja, pedido e item/SKU.
+- Calcula custo real, lucro, margem e status de saude do preco.
+- Permite vinculo manual entre produto importado e produto cadastrado.
+
 ## Firebase
 
 O app usa Firebase Realtime Database nos caminhos:
 
 - `products`
 - `appConfig`
+- `marketplaceOrders`
+- `marketplaceSettings`
+- `productMatchRules`
 
 Os dados existentes devem continuar compativeis. Campos opcionais devem ser enviados como `null` ou omitidos, nunca como `undefined`.
 

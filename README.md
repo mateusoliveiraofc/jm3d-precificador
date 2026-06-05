@@ -14,6 +14,7 @@ O projeto ja esta funcional e deve ser tratado como uma base estavel. As funcion
 - Exportacao/compartilhamento de orcamento e catalogo em HTML.
 - Persistencia de configuracoes.
 - Tela de PIN para acesso.
+- Analise de lucro por marketplace com importacao em lote de relatorios Shopee e TikTok Shop.
 
 ## Estrutura principal
 
@@ -21,6 +22,9 @@ O projeto ja esta funcional e deve ser tratado como uma base estavel. As funcion
 - `app/src/main/res/layout/activity_main.xml`: layout Android com WebView em tela cheia.
 - `app/src/main/res/values/themes.xml`: tema Android com barras transparentes.
 - `app/src/main/assets/index.html`: aplicacao web principal, incluindo UI, estilos, calculos, Firebase, catalogo e exportacao HTML.
+- `app/src/main/assets/marketplace.js`: modulo de importacao XLSX/CSV, dashboard de lucro, vinculo de produtos e precificacao profissional.
+- `app/src/main/assets/xlsx.full.min.js`: biblioteca local SheetJS usada para ler arquivos XLSX no Android/Web/PWA.
+- `app/src/main/assets/manifest.json` e `app/src/main/assets/sw.js`: arquivos PWA.
 - `app/src/main/assets/logo.png` e `app/src/main/assets/logo_small.png`: assets de marca.
 
 ## Regras de manutencao
@@ -35,6 +39,7 @@ Nao remover nem alterar sem necessidade:
 - Estrutura de dados existente no Realtime Database.
 - Recursos de compartilhamento/exportacao HTML.
 - Persistencia de configuracoes.
+- Caminhos novos de analise: `marketplaceOrders`, `marketplaceSettings` e `productMatchRules`.
 
 ## Pontos criticos
 
@@ -58,6 +63,8 @@ O Firebase Realtime Database nao aceita propriedades com valor `undefined`. Ante
 - Preservar compatibilidade com dados antigos.
 - Nao alterar a estrutura do banco sem migracao.
 
+Os pedidos importados de marketplaces ficam separados dos produtos cadastrados. A chave de importacao usa marketplace, loja, pedido e item/SKU para evitar duplicidade sem perder pedidos com mais de um item.
+
 ### PWA / HTML
 
 A versao HTML precisa continuar funcionando em navegador movel. Ao adicionar manifest ou service worker, preservar compatibilidade com Safari/iPhone e safe area.
@@ -71,7 +78,8 @@ Quando houver alteracoes:
 3. Testar calculo com campos vazios e preenchidos.
 4. Testar salvamento online e fallback local.
 5. Testar exportacao/compartilhamento HTML.
-6. Testar Android com build debug quando o Gradle wrapper estiver disponivel.
+6. Testar importacao em lote com Shopee Income, Shopee Order.completed, TikTok income e TikTok Orders CSV.
+7. Testar Android com build debug quando o Gradle wrapper estiver disponivel.
 
 Observacao: neste workspace foi encontrado `gradle/wrapper/gradle-wrapper.properties`, mas nao foram encontrados `gradlew` ou `gradlew.bat` na raiz.
 

@@ -2,12 +2,15 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<link rel="manifest" href="manifest.json">
 <title>JM 3D Precificador</title>
 
 <!-- Firebase SDK -->
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+<script>window.module=undefined;window.exports=undefined;window.define=undefined;</script>
+<script src="xlsx.full.min.js"></script>
 
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -206,6 +209,36 @@ textarea.fi{resize:none;min-height:65px}
 .prod-list .chip{font-size:10px;padding:2px 6px}
 .prod-list .prod-btns button{padding:6px 8px;font-size:11px}
 
+/* ANALISE DE LUCRO */
+.dash-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:11px}
+.metric{background:var(--surf);border:1px solid var(--bdr);border-radius:var(--rs);padding:11px;min-height:72px}
+.metric .ml{font-size:10px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+.metric .mv{font-size:18px;font-weight:900;color:#fff;line-height:1.15}
+.metric.good .mv{color:var(--green)}.metric.bad .mv{color:var(--red)}.metric.warn .mv{color:var(--orange)}
+.seg{display:flex;background:var(--surf2);border:1px solid var(--bdr2);border-radius:var(--rs);overflow:hidden;margin-bottom:11px}
+.seg button{flex:1;border:none;background:transparent;color:var(--muted);padding:10px 6px;font-size:11px;font-weight:800;cursor:pointer}
+.seg button.on{background:rgba(0,207,255,.16);color:var(--cyan)}
+.import-box{background:linear-gradient(135deg,rgba(0,207,255,.08),rgba(255,140,0,.06));border:1px solid rgba(0,207,255,.24);border-radius:var(--r);padding:14px;margin-bottom:11px}
+.file-drop{border:1.5px dashed var(--bdr2);border-radius:var(--r);background:rgba(255,255,255,.035);padding:16px;text-align:center;margin-bottom:11px}
+.mini-table{width:100%;border-collapse:collapse;font-size:11px}
+.mini-table th,.mini-table td{border-bottom:1px solid var(--bdr);padding:7px 5px;text-align:left;vertical-align:top}
+.mini-table th{color:var(--muted);font-size:9px;text-transform:uppercase;letter-spacing:.5px}
+.mini-table td.num{text-align:right;font-weight:700;white-space:nowrap}
+.order-card{background:var(--surf);border:1px solid var(--bdr);border-radius:var(--rs);padding:11px;margin-bottom:9px}
+.order-top{display:flex;justify-content:space-between;gap:8px;margin-bottom:7px}
+.order-title{font-size:13px;font-weight:800;line-height:1.25}
+.order-meta{font-size:10px;color:var(--muted);margin-top:3px}
+.health{display:inline-flex;align-items:center;border-radius:999px;padding:3px 8px;font-size:10px;font-weight:800;white-space:nowrap}
+.health.ok{background:rgba(0,230,118,.12);color:var(--green);border:1px solid rgba(0,230,118,.24)}
+.health.warn{background:rgba(255,140,0,.12);color:var(--orange);border:1px solid rgba(255,140,0,.24)}
+.health.bad{background:rgba(255,68,68,.12);color:var(--red);border:1px solid rgba(255,68,68,.24)}
+.filter-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
+.filter-row .fi{margin-bottom:0;font-size:12px;padding:8px 10px}
+.cost-bars{display:flex;height:10px;border-radius:999px;overflow:hidden;background:var(--surf2);margin:10px 0 4px}
+.cost-bars span{display:block;min-width:3px}
+.review-list{max-height:280px;overflow:auto;border:1px solid var(--bdr);border-radius:var(--rs);margin-bottom:11px}
+.muted-note{font-size:11px;color:var(--muted);line-height:1.45;margin-bottom:10px}
+
 
 /* ── PIN SCREEN ── */
 #pin-screen{
@@ -326,6 +359,7 @@ textarea.fi{resize:none;min-height:65px}
   <div id="tabs">
     <div class="tab active" onclick="swTab('calc')">🧮 Calcular</div>
     <div class="tab" onclick="swTab('produtos')">📦 Produtos</div>
+    <div class="tab" onclick="swTab('analise')">Análise</div>
   </div>
   <div id="content"></div>
 </div>
@@ -338,6 +372,7 @@ textarea.fi{resize:none;min-height:65px}
 </div>
 <input type="file" id="fi-photo" accept="image/*" style="display:none" onchange="onPhotoSelected(event)">
 
+<script src="marketplace.js"></script>
 <script>
 // ── UTILS ──────────────────────────────────────────────────────────────────
 const uid=()=>Math.random().toString(36).slice(2,9);
@@ -345,9 +380,104 @@ const brl=v=>'R$ '+Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,max
 const pct=v=>Number(v).toFixed(1)+'%';
 const esc=s=>String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 const ea=s=>String(s||'').replace(/"/g,'&quot;');
+const norm=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+const slug=s=>norm(s).replace(/\s+/g,'_').slice(0,90)||'sem_id';
+
+function removeUndefinedDeep(v){
+  if(v===undefined)return undefined;
+  if(v===null||typeof v!=='object')return v;
+  if(Array.isArray(v))return v.map(removeUndefinedDeep).filter(x=>x!==undefined);
+  const out={};
+  Object.keys(v).forEach(k=>{
+    const clean=removeUndefinedDeep(v[k]);
+    if(clean!==undefined)out[k]=clean;
+  });
+  return out;
+}
+const sanitizeForFirebase=obj=>removeUndefinedDeep(obj)||null;
+
+function parseMoneyBR(v){
+  if(v===null||v===undefined||v===''||v==='-'||v==='/')return 0;
+  if(typeof v==='number')return Number.isFinite(v)?v:0;
+  let s=String(v).replace(/\t/g,'').replace(/\s/g,'').replace(/BRL|R\$/gi,'');
+  s=s.replace(/[^\d,.\-]/g,'');
+  if(!s||s==='-'||s==='.')return 0;
+  const neg=s.includes('-'); s=s.replace(/-/g,'');
+  const lastComma=s.lastIndexOf(','), lastDot=s.lastIndexOf('.');
+  if(lastComma>-1&&lastDot>-1){
+    if(lastComma>lastDot)s=s.replace(/\./g,'').replace(',','.');
+    else s=s.replace(/,/g,'');
+  }else if(lastComma>-1){
+    s=s.replace(/\./g,'').replace(',','.');
+  }
+  const n=parseFloat(s);
+  return Number.isFinite(n)?(neg?-n:n):0;
+}
+
+function parseDateFlexible(v){
+  if(!v)return '';
+  if(v instanceof Date&&!isNaN(v))return v.toISOString().slice(0,10);
+  const s=String(v).replace(/\t/g,'').trim();
+  if(!s||s==='-')return '';
+  let m=s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if(m)return `${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}`;
+  m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if(m)return `${m[3]}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}`;
+  const d=new Date(s);
+  return isNaN(d)?s:d.toISOString().slice(0,10);
+}
+
+function cleanCell(v){return String(v??'').replace(/\t/g,'').trim();}
+function findHeaderRow(rows, mustHave){
+  return rows.findIndex(r=>mustHave.some(key=>r.some(c=>norm(c).includes(key))));
+}
+function rowToObj(headers,row){
+  const obj={};
+  headers.forEach((h,i)=>{ if(cleanCell(h))obj[cleanCell(h)]=row[i]??''; });
+  return obj;
+}
+function pick(obj, names){
+  const keys=Object.keys(obj||{});
+  for(const name of names){
+    const n=norm(name);
+    const k=keys.find(x=>norm(x)===n)||keys.find(x=>norm(x).includes(n));
+    if(k)return obj[k];
+  }
+  return '';
+}
+function sumMoney(obj,names){return names.reduce((t,n)=>t+parseMoneyBR(pick(obj,[n])),0);}
+
+function getMarketplaceDefaults(){
+  return {
+    filamentKgPrice:95, energyKwhPrice:1.05, printerKwhHour:0.10, dasMeiMonthly:90,
+    meiAllocation:'unit', labelCost:0, postProcessCost:0, lossPct:5, nozzleWearCost:0,
+    otherProductionCost:0, adsPct:0, affiliatePct:0,
+    shopeeCommissionPct:18, shopeeFixedFee:4.42, shopeeExtraPct:0,
+    tiktokCommissionPct:20, tiktokFixedFee:0, tiktokAffiliatePct:0,
+    stores:{shopeeKaline:true,shopeeMateus:true,tiktok:true}
+  };
+}
+function getMarketplaceSettings(){
+  return Object.assign(getMarketplaceDefaults(), JSON.parse(localStorage.getItem('jm3d_market_cfg')||'{}'));
+}
+function saveMarketplaceSettings(s){
+  const cfg=Object.assign(getMarketplaceDefaults(),s||{});
+  localStorage.setItem('jm3d_market_cfg',JSON.stringify(cfg));
+  if(marketplaceSettingsRef)marketplaceSettingsRef.set(sanitizeForFirebase(cfg)).catch(()=>{});
+}
+function feeRuleFor(marketplace){
+  const s=getMarketplaceSettings();
+  if(marketplace==='tiktok')return {pct:(s.tiktokCommissionPct||0)+(s.tiktokAffiliatePct||0),fixed:s.tiktokFixedFee||0};
+  if(marketplace==='direct')return {pct:0,fixed:0};
+  return {pct:(s.shopeeCommissionPct||0)+(s.shopeeExtraPct||0),fixed:s.shopeeFixedFee||0};
+}
+function priceForMargin(cost,marketplace,marginPct){
+  const f=feeRuleFor(marketplace), denom=1-(f.pct/100)-(marginPct/100);
+  return denom>0?(cost+f.fixed)/denom:0;
+}
 
 // ── FIREBASE CONFIG ────────────────────────────────────────────────────────
-let db=null, productsRef=null, configRef=null;
+let db=null, productsRef=null, configRef=null, marketplaceOrdersRef=null, marketplaceSettingsRef=null, matchRulesRef=null;
 
 function getFirebaseConfig(){
   return JSON.parse(localStorage.getItem('jm3d_firebase')||'null');
@@ -396,6 +526,9 @@ function initFirebase(){
     db=firebase.database();
     productsRef=db.ref('products');
     configRef=db.ref('appConfig');
+    marketplaceOrdersRef=db.ref('marketplaceOrders');
+    marketplaceSettingsRef=db.ref('marketplaceSettings');
+    matchRulesRef=db.ref('productMatchRules');
     return true;
   }catch(e){
     setSyncStatus('err','Erro Firebase: '+e.message);
@@ -419,6 +552,8 @@ function setSyncStatus(state,msg){
 
 // ── LOCAL CACHE (fallback quando offline) ─────────────────────────────────
 let localProducts=[];
+let marketplaceOrders=[], productMatchRules={}, importReview=null, analysisMode='dashboard';
+let analysisFilters={marketplace:'all',store:'all',health:'all',q:''};
 function getLocalConfig(){
   return JSON.parse(localStorage.getItem('jm3d_cfg')||JSON.stringify({
     filamentKgPrice:100,bubbleUnit:0.50,lightMonthly:130,
@@ -449,13 +584,28 @@ function startListeners(){
       profitPct=cfg.defaultProfit||profitPct;
     }
   });
+
+  if(marketplaceOrdersRef)marketplaceOrdersRef.on('value',snap=>{
+    const data=snap.val()||{};
+    marketplaceOrders=Object.values(data).sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));
+    if(curTab==='analise')renderAnalysis();
+  });
+  if(marketplaceSettingsRef)marketplaceSettingsRef.on('value',snap=>{
+    const cfg=snap.val();
+    if(cfg)localStorage.setItem('jm3d_market_cfg',JSON.stringify(Object.assign(getMarketplaceDefaults(),cfg)));
+    if(curTab==='analise')renderAnalysis();
+  });
+  if(matchRulesRef)matchRulesRef.on('value',snap=>{
+    productMatchRules=snap.val()||{};
+    if(curTab==='analise')renderAnalysis();
+  });
 }
 
 async function pushProduct(p){
   setSyncStatus('loading','Salvando...');
   try{
     p.savedTs=Date.now();
-    await productsRef.child(p.id).set(p);
+    await productsRef.child(p.id).set(sanitizeForFirebase(p));
     // Backup local
     localStorage.setItem('jm3d_products',JSON.stringify(localProducts));
     setSyncStatus('ok','✅ Produto salvo e sincronizado!');
@@ -479,7 +629,7 @@ async function deleteProduct(id){
 }
 
 async function syncConfig(cfg){
-  try{await configRef.set(cfg);}catch(e){}
+  try{await configRef.set(sanitizeForFirebase(cfg));}catch(e){}
 }
 
 // ── STATE ──────────────────────────────────────────────────────────────────
@@ -535,11 +685,16 @@ function swTab(t){
     formState.desc=document.getElementById('c-desc')?.value||formState.desc;
   }
   curTab=t;
+  const tabIds=['calc','produtos','analise'];
   document.querySelectorAll('.tab').forEach((el,i)=>
-    el.classList.toggle('active',['calc','produtos'][i]===t));
+    el.classList.toggle('active',tabIds[i]===t));
   renderContent();
 }
-function renderContent(){curTab==='calc'?renderCalc():renderProducts();}
+function renderContent(){
+  if(curTab==='calc')renderCalc();
+  else if(curTab==='produtos')renderProducts();
+  else renderAnalysis();
+}
 
 // ── RENDER CALC ────────────────────────────────────────────────────────────
 
@@ -1187,5 +1342,8 @@ if(initFirebase()){
   startListeners();
 }
 renderContent();
+if('serviceWorker' in navigator && location.protocol.startsWith('http')){
+  navigator.serviceWorker.register('sw.js').catch(()=>{});
+}
 </script>
 </body></html>

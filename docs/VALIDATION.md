@@ -38,6 +38,8 @@ Use este checklist antes de considerar uma mudanca concluida.
 - Salvar produto com campos opcionais vazios.
 - Confirmar que nenhum objeto enviado contem `undefined`.
 - Confirmar fallback local em falha de conexao.
+- Importar o mesmo lote de relatorios duas vezes e confirmar que duplicados sao ignorados.
+- Confirmar que pedidos importados sao salvos em `marketplaceOrders`, sem alterar `products`.
 
 ## Catalogo e compartilhamento
 
@@ -52,3 +54,18 @@ Se forem adicionados ou alterados manifest e service worker:
 - Testar Safari.
 - Testar "Adicionar a Tela de Inicio".
 - Preservar safe area com `env(safe-area-inset-top)` e `env(safe-area-inset-bottom)`.
+
+## Relatorios Shopee/TikTok
+
+- Selecionar varios arquivos ao mesmo tempo.
+- Misturar XLSX e CSV no mesmo lote.
+- Testar Shopee Income.lancado.
+- Testar Shopee Order.completed.
+- Testar TikTok income.
+- Testar TikTok Enviado pedido CSV.
+- Confirmar tela de revisao antes de salvar.
+- Confirmar dashboard consolidado.
+- Confirmar filtros por loja e marketplace.
+- Confirmar produto nao vinculado.
+- Confirmar vinculo manual de produto.
+- Exportar CSV da analise.
