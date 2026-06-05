@@ -14,7 +14,7 @@ O projeto ja esta funcional e deve ser tratado como uma base estavel. As funcion
 - Exportacao/compartilhamento de orcamento e catalogo em HTML.
 - Persistencia de configuracoes.
 - Tela de PIN para acesso.
-- Analise de lucro por marketplace com importacao em lote de relatorios Shopee e TikTok Shop.
+- Analise financeira profissional por marketplace com importacao em lote de relatorios Shopee e TikTok Shop.
 
 ## Estrutura principal
 
@@ -39,7 +39,7 @@ Nao remover nem alterar sem necessidade:
 - Estrutura de dados existente no Realtime Database.
 - Recursos de compartilhamento/exportacao HTML.
 - Persistencia de configuracoes.
-- Caminhos novos de analise: `marketplaceOrders`, `marketplaceSettings` e `productMatchRules`.
+- Caminhos novos de analise em `users/default`: `productCatalog`, `marketplaceOrders`, `marketplaceSettings` e `productMatchRules`.
 
 ## Pontos criticos
 
@@ -63,7 +63,27 @@ O Firebase Realtime Database nao aceita propriedades com valor `undefined`. Ante
 - Preservar compatibilidade com dados antigos.
 - Nao alterar a estrutura do banco sem migracao.
 
-Os pedidos importados de marketplaces ficam separados dos produtos cadastrados. A chave de importacao usa marketplace, loja, pedido e item/SKU para evitar duplicidade sem perder pedidos com mais de um item.
+Os pedidos importados de marketplaces ficam separados dos produtos cadastrados. A chave de importacao usa `marketplace + loja + orderId` para evitar duplicidade ao reimportar o mesmo relatorio. Produtos com multiplas linhas no mesmo pedido sao consolidados antes de salvar.
+
+### Analise de lucro e catalogo profissional
+
+A area `Analise` e um modulo adicional. Ela nao substitui o calculo antigo nem altera a estrutura original de `products`.
+
+Novos caminhos logicos:
+
+- `users/default/productCatalog`: espelho profissional dos produtos, com `sku`, `photoUrl`, `aliases`, `links`, custos e configuracoes por marketplace.
+- `users/default/marketplaceOrders`: pedidos importados com financeiro, custos de producao, lucro e vinculo com produto.
+- `users/default/marketplaceSettings`: custos globais e taxas por marketplace.
+- `users/default/productMatchRules`: regras permanentes de vinculo manual.
+
+O app ainda le caminhos legados na raiz (`marketplaceOrders`, `marketplaceSettings`, `productMatchRules`) como fallback para preservar compatibilidade.
+
+Prioridade de vinculo automatico:
+
+1. SKU.
+2. ID/link do item marketplace.
+3. Alias cadastrado.
+4. Nome parecido.
 
 ### PWA / HTML
 

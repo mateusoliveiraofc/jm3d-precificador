@@ -238,6 +238,28 @@ textarea.fi{resize:none;min-height:65px}
 .cost-bars span{display:block;min-width:3px}
 .review-list{max-height:280px;overflow:auto;border:1px solid var(--bdr);border-radius:var(--rs);margin-bottom:11px}
 .muted-note{font-size:11px;color:var(--muted);line-height:1.45;margin-bottom:10px}
+.analysis-shell{display:grid;gap:12px}
+.dash-section{background:var(--surf);border:1px solid var(--bdr);border-radius:var(--r);padding:13px}
+.dash-section h3{font-size:13px;font-weight:900;margin-bottom:10px;color:#fff;display:flex;justify-content:space-between;align-items:center}
+.dash-section h3 span{font-size:10px;color:var(--muted);font-weight:700}
+.finance-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.money-card{background:#0F1522;border:1px solid var(--bdr2);border-radius:8px;padding:11px;min-height:76px}
+.money-card .tag{font-size:9px;color:var(--muted);text-transform:uppercase;font-weight:800;letter-spacing:.5px;margin-bottom:6px}
+.money-card .amount{font-size:20px;font-weight:950;color:#fff;line-height:1.1}
+.money-card .sub{font-size:10px;color:var(--muted);margin-top:5px}
+.money-card.in .amount{color:var(--cyan)}.money-card.out .amount{color:var(--orange)}.money-card.net .amount{color:var(--green)}.money-card.risk .amount{color:var(--red)}
+.chart-card{background:#0F1522;border:1px solid var(--bdr2);border-radius:8px;padding:10px}
+.chart-title{font-size:10px;color:var(--muted);font-weight:800;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
+.chart-svg{width:100%;height:150px;display:block}
+.donut-wrap{display:grid;grid-template-columns:120px 1fr;gap:10px;align-items:center}
+.legend{display:grid;gap:5px;font-size:11px;color:var(--muted)}
+.legend span{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px}
+.period-row{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-bottom:10px}
+.period-row button{background:var(--surf2);border:1px solid var(--bdr2);color:var(--muted);border-radius:8px;padding:8px 4px;font-size:11px;font-weight:800}
+.period-row button.on{border-color:var(--cyan);color:var(--cyan);background:rgba(0,207,255,.1)}
+.alert-list{display:grid;gap:7px}
+.alert-item{display:flex;justify-content:space-between;gap:8px;background:#0F1522;border:1px solid var(--bdr2);border-radius:8px;padding:9px;font-size:12px}
+.alert-item b{color:#fff}.alert-item span{color:var(--muted)}
 
 
 /* ── PIN SCREEN ── */
@@ -467,7 +489,7 @@ function saveMarketplaceSettings(s){
 }
 function feeRuleFor(marketplace){
   const s=getMarketplaceSettings();
-  if(marketplace==='tiktok')return {pct:(s.tiktokCommissionPct||0)+(s.tiktokAffiliatePct||0),fixed:s.tiktokFixedFee||0};
+  if(marketplace==='tiktok'||marketplace==='tiktokShop')return {pct:(s.tiktokCommissionPct||0)+(s.tiktokAffiliatePct||0),fixed:s.tiktokFixedFee||0};
   if(marketplace==='direct')return {pct:0,fixed:0};
   return {pct:(s.shopeeCommissionPct||0)+(s.shopeeExtraPct||0),fixed:s.shopeeFixedFee||0};
 }
@@ -477,7 +499,10 @@ function priceForMargin(cost,marketplace,marginPct){
 }
 
 // ── FIREBASE CONFIG ────────────────────────────────────────────────────────
-let db=null, productsRef=null, configRef=null, marketplaceOrdersRef=null, marketplaceSettingsRef=null, matchRulesRef=null;
+const USER_ID='default';
+let db=null, userRootRef=null, productsRef=null, configRef=null, productCatalogRef=null,
+    marketplaceOrdersRef=null, marketplaceSettingsRef=null, matchRulesRef=null,
+    legacyMarketplaceOrdersRef=null, legacyMarketplaceSettingsRef=null, legacyMatchRulesRef=null;
 
 function getFirebaseConfig(){
   return JSON.parse(localStorage.getItem('jm3d_firebase')||'null');
@@ -524,11 +549,16 @@ function initFirebase(){
       ? firebase.app()
       : firebase.initializeApp(FIREBASE_CFG);
     db=firebase.database();
+    userRootRef=db.ref('users').child(USER_ID);
     productsRef=db.ref('products');
     configRef=db.ref('appConfig');
-    marketplaceOrdersRef=db.ref('marketplaceOrders');
-    marketplaceSettingsRef=db.ref('marketplaceSettings');
-    matchRulesRef=db.ref('productMatchRules');
+    productCatalogRef=userRootRef.child('productCatalog');
+    marketplaceOrdersRef=userRootRef.child('marketplaceOrders');
+    marketplaceSettingsRef=userRootRef.child('marketplaceSettings');
+    matchRulesRef=userRootRef.child('productMatchRules');
+    legacyMarketplaceOrdersRef=db.ref('marketplaceOrders');
+    legacyMarketplaceSettingsRef=db.ref('marketplaceSettings');
+    legacyMatchRulesRef=db.ref('productMatchRules');
     return true;
   }catch(e){
     setSyncStatus('err','Erro Firebase: '+e.message);
@@ -551,9 +581,9 @@ function setSyncStatus(state,msg){
 }
 
 // ── LOCAL CACHE (fallback quando offline) ─────────────────────────────────
-let localProducts=[];
+let localProducts=[], productCatalog=[];
 let marketplaceOrders=[], productMatchRules={}, importReview=null, analysisMode='dashboard';
-let analysisFilters={marketplace:'all',store:'all',health:'all',q:''};
+let analysisFilters={marketplace:'all',store:'all',health:'all',q:'',period:'30d',from:'',to:''};
 function getLocalConfig(){
   return JSON.parse(localStorage.getItem('jm3d_cfg')||JSON.stringify({
     filamentKgPrice:100,bubbleUnit:0.50,lightMonthly:130,
@@ -563,6 +593,74 @@ function getLocalConfig(){
 }
 function saveLocalConfig(c){localStorage.setItem('jm3d_cfg',JSON.stringify(c));}
 
+function productCatalogId(p){
+  return p.catalogId||p.id||('prod_'+slug(p.sku||p.name));
+}
+function legacyToCatalogProduct(p){
+  const cfg=getMarketplaceSettings();
+  const now=new Date().toISOString();
+  const aliases=Array.isArray(p.aliases)?p.aliases:String(p.aliases||'').split('\n').map(x=>x.trim()).filter(Boolean);
+  if(p.name&&!aliases.some(a=>norm(a)===norm(p.name)))aliases.unshift(p.name);
+  return {
+    id:productCatalogId(p),
+    legacyProductId:p.id||'',
+    name:p.name||'Produto sem nome',
+    sku:p.sku||'',
+    photoUrl:p.photoUrl||p.photo||null,
+    description:p.desc||'',
+    category:p.category||'',
+    notes:p.notes||'',
+    aliases,
+    links:{
+      shopee_kaline98:p.links?.shopee_kaline98||p.shopeeKalineUrl||'',
+      shopee_mateusoliver98:p.links?.shopee_mateusoliver98||p.shopeeMateusUrl||'',
+      tiktokShop:p.links?.tiktokShop||p.tiktokUrl||''
+    },
+    costs:{
+      weightGrams:Number(p.weight)||0,
+      printTimeHours:Number(p.printH)||0,
+      filamentCostPerKg:cfg.filamentKgPrice||95,
+      energyKwhPerHour:cfg.printerKwhHour||0.10,
+      energyCostPerKwh:cfg.energyKwhPrice||1.05,
+      packaging:Number(p.breakdown?.pkg)||0,
+      bubbleWrap:Number(p.breakdown?.bubble)||0,
+      label:cfg.labelCost||0,
+      maintenance:Number(p.breakdown?.maint)||0,
+      wastePercent:cfg.lossPct||5,
+      extraCost:cfg.otherProductionCost||0
+    },
+    marketplaceSettings:{
+      shopee:{active:true,salePrice:Number(p.price)||0,commissionPercent:cfg.shopeeCommissionPct||18,fixedFee:cfg.shopeeFixedFee||4.42},
+      tiktokShop:{active:true,salePrice:Number(p.tiktokPrice)||Number(p.price)||0,commissionPercent:cfg.tiktokCommissionPct||20,fixedFee:cfg.tiktokFixedFee||0,affiliatePercent:cfg.tiktokAffiliatePct||0}
+    },
+    createdAt:p.createdAt||new Date(p.savedTs||Date.now()).toISOString(),
+    updatedAt:now
+  };
+}
+function mergedProductCatalog(){
+  const byId={};
+  localProducts.forEach(p=>{byId[productCatalogId(p)]=legacyToCatalogProduct(p);});
+  productCatalog.forEach(p=>{byId[p.id]=Object.assign(byId[p.id]||{},p);});
+  return Object.values(byId);
+}
+async function saveProductCatalogMirror(p){
+  const catalog=legacyToCatalogProduct(p);
+  if(productCatalogRef)await productCatalogRef.child(catalog.id).set(sanitizeForFirebase(catalog));
+  return catalog;
+}
+let catalogMigrationDone=false;
+function migrateLegacyProductsToCatalog(){
+  if(catalogMigrationDone||!productCatalogRef||!localProducts.length)return;
+  catalogMigrationDone=true;
+  const existing=new Set(productCatalog.map(p=>p.id));
+  const updates={};
+  localProducts.forEach(p=>{
+    const c=legacyToCatalogProduct(p);
+    if(!existing.has(c.id))updates[c.id]=sanitizeForFirebase(c);
+  });
+  if(Object.keys(updates).length)productCatalogRef.update(updates).catch(()=>{catalogMigrationDone=false;});
+}
+
 // ── FIREBASE LISTENERS ─────────────────────────────────────────────────────
 function startListeners(){
   setSyncStatus('loading','Sincronizando...');
@@ -570,11 +668,19 @@ function startListeners(){
   productsRef.on('value', snap=>{
     const data=snap.val();
     localProducts=data?Object.values(data).sort((a,b)=>b.savedTs-a.savedTs):[];
+    migrateLegacyProductsToCatalog();
     setSyncStatus('ok','✅ Sincronizado');
     if(curTab==='produtos') renderProducts();
+    if(curTab==='analise') renderAnalysis();
   }, err=>{
     setSyncStatus('err','❌ Sem conexão — modo offline');
     localProducts=JSON.parse(localStorage.getItem('jm3d_products')||'[]');
+  });
+
+  if(productCatalogRef)productCatalogRef.on('value',snap=>{
+    productCatalog=Object.values(snap.val()||{});
+    migrateLegacyProductsToCatalog();
+    if(curTab==='analise')renderAnalysis();
   });
 
   configRef.on('value', snap=>{
@@ -587,16 +693,32 @@ function startListeners(){
 
   if(marketplaceOrdersRef)marketplaceOrdersRef.on('value',snap=>{
     const data=snap.val()||{};
-    marketplaceOrders=Object.values(data).sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));
+    marketplaceOrders=Object.values(data).sort((a,b)=>String(b.date||b.orderDate||'').localeCompare(String(a.date||a.orderDate||'')));
     if(curTab==='analise')renderAnalysis();
+  });
+  if(legacyMarketplaceOrdersRef)legacyMarketplaceOrdersRef.on('value',snap=>{
+    const legacy=Object.values(snap.val()||{});
+    if(legacy.length&&!marketplaceOrders.length){
+      marketplaceOrders=legacy.sort((a,b)=>String(b.date||b.orderDate||'').localeCompare(String(a.date||a.orderDate||'')));
+      if(curTab==='analise')renderAnalysis();
+    }
   });
   if(marketplaceSettingsRef)marketplaceSettingsRef.on('value',snap=>{
     const cfg=snap.val();
     if(cfg)localStorage.setItem('jm3d_market_cfg',JSON.stringify(Object.assign(getMarketplaceDefaults(),cfg)));
     if(curTab==='analise')renderAnalysis();
   });
+  if(legacyMarketplaceSettingsRef)legacyMarketplaceSettingsRef.on('value',snap=>{
+    const cfg=snap.val();
+    if(cfg&&!localStorage.getItem('jm3d_market_cfg'))localStorage.setItem('jm3d_market_cfg',JSON.stringify(Object.assign(getMarketplaceDefaults(),cfg)));
+  });
   if(matchRulesRef)matchRulesRef.on('value',snap=>{
     productMatchRules=snap.val()||{};
+    if(curTab==='analise')renderAnalysis();
+  });
+  if(legacyMatchRulesRef)legacyMatchRulesRef.on('value',snap=>{
+    const legacy=snap.val()||{};
+    productMatchRules=Object.assign({},legacy,productMatchRules);
     if(curTab==='analise')renderAnalysis();
   });
 }
@@ -606,6 +728,7 @@ async function pushProduct(p){
   try{
     p.savedTs=Date.now();
     await productsRef.child(p.id).set(sanitizeForFirebase(p));
+    await saveProductCatalogMirror(p).catch(()=>{});
     // Backup local
     localStorage.setItem('jm3d_products',JSON.stringify(localProducts));
     setSyncStatus('ok','✅ Produto salvo e sincronizado!');
@@ -635,7 +758,7 @@ async function syncConfig(cfg){
 // ── STATE ──────────────────────────────────────────────────────────────────
 let curTab='calc', curPkg='small', profitPct=250, manualPrice=null, photoData=null;
 let viewMode='grid', searchQ='', sortBy='newest';
-let formState={name:'',desc:''};
+let formState={name:'',desc:'',sku:'',aliases:'',shopeeKalineUrl:'',shopeeMateusUrl:'',tiktokUrl:'',category:'',notes:''};
 let aiResult={title:'',desc:'',prices:null,loading:false};
 
 // ── CÁLCULO ────────────────────────────────────────────────────────────────
@@ -683,6 +806,7 @@ function swTab(t){
   if(curTab==='calc'){
     formState.name=document.getElementById('c-name')?.value||formState.name;
     formState.desc=document.getElementById('c-desc')?.value||formState.desc;
+    captureProductMeta();
   }
   curTab=t;
   const tabIds=['calc','produtos','analise'];
@@ -694,6 +818,13 @@ function renderContent(){
   if(curTab==='calc')renderCalc();
   else if(curTab==='produtos')renderProducts();
   else renderAnalysis();
+}
+
+function captureProductMeta(){
+  ['sku','aliases','shopeeKalineUrl','shopeeMateusUrl','tiktokUrl','category','notes'].forEach(k=>{
+    const el=document.getElementById('c-'+k);
+    if(el)formState[k]=el.value||'';
+  });
 }
 
 // ── RENDER CALC ────────────────────────────────────────────────────────────
@@ -727,6 +858,18 @@ function renderCalc(){
       <input class="fi" type="text" id="c-name" placeholder="Ex: Vaso Geométrico P" value="${ea(formState.name)}">
       <label class="fl">Descrição</label>
       <textarea class="fi" id="c-desc" placeholder="Descreva o produto...">${esc(formState.desc)}</textarea>
+      <div class="fi-row2">
+        <div><label class="fl">SKU</label><input class="fi" type="text" id="c-sku" placeholder="PORTA-FIG-500-001" value="${ea(formState.sku)}"></div>
+        <div><label class="fl">Categoria</label><input class="fi" type="text" id="c-category" placeholder="Organizadores" value="${ea(formState.category)}"></div>
+      </div>
+      <label class="fl">Aliases para reconhecimento</label>
+      <textarea class="fi" id="c-aliases" placeholder="Um nome por linha: porta figurinhas, porta cards...">${esc(formState.aliases)}</textarea>
+      <label class="fl">Links marketplace</label>
+      <input class="fi" type="url" id="c-shopeeKalineUrl" placeholder="Shopee _kaline98" value="${ea(formState.shopeeKalineUrl)}">
+      <input class="fi" type="url" id="c-shopeeMateusUrl" placeholder="Shopee mateusoliver98" value="${ea(formState.shopeeMateusUrl)}">
+      <input class="fi" type="url" id="c-tiktokUrl" placeholder="TikTok Shop" value="${ea(formState.tiktokUrl)}">
+      <label class="fl">Observações internas</label>
+      <textarea class="fi" id="c-notes" placeholder="Acabamento, variações, anúncio principal...">${esc(formState.notes)}</textarea>
     </div>
   </div>
   <div class="sec anim" style="animation-delay:.04s">
@@ -816,6 +959,7 @@ function setPkg(v){
   const b=document.getElementById('c-bubbles')?.value||'1';
   formState.name=document.getElementById('c-name')?.value||formState.name;
   formState.desc=document.getElementById('c-desc')?.value||formState.desc;
+  captureProductMeta();
   curPkg=v;renderCalc();
   if(document.getElementById('c-weight'))document.getElementById('c-weight').value=w;
   if(document.getElementById('c-time'))document.getElementById('c-time').value=t;
@@ -863,6 +1007,7 @@ async function runAI(){
   const b=document.getElementById('c-bubbles')?.value||'1';
   formState.name=document.getElementById('c-name')?.value||formState.name;
   formState.desc=document.getElementById('c-desc')?.value||formState.desc;
+  captureProductMeta();
   renderCalc();
   if(document.getElementById('c-weight'))document.getElementById('c-weight').value=w;
   if(document.getElementById('c-time'))document.getElementById('c-time').value=t;
@@ -902,6 +1047,7 @@ function applyAI(){
   const w=document.getElementById('c-weight')?.value||'';
   const t=document.getElementById('c-time')?.value||'';
   const b=document.getElementById('c-bubbles')?.value||'1';
+  captureProductMeta();
   renderCalc();
   if(document.getElementById('c-weight'))document.getElementById('c-weight').value=w;
   if(document.getElementById('c-time'))document.getElementById('c-time').value=t;
@@ -913,10 +1059,18 @@ function applyAI(){
 async function saveProduct(){
   const name=(document.getElementById('c-name')?.value||formState.name).trim();
   if(!name){alert('Informe o nome!');return;}
+  captureProductMeta();
   const costs=calcCosts();
   const p={
     id:uid(),name,
     desc:(document.getElementById('c-desc')?.value||formState.desc).trim(),
+    sku:formState.sku.trim(),
+    aliases:formState.aliases.split('\n').map(x=>x.trim()).filter(Boolean),
+    shopeeKalineUrl:formState.shopeeKalineUrl.trim(),
+    shopeeMateusUrl:formState.shopeeMateusUrl.trim(),
+    tiktokUrl:formState.tiktokUrl.trim(),
+    category:formState.category.trim(),
+    notes:formState.notes.trim(),
     photo:photoData||null,
     totalCost:costs.totalCost,price:costs.suggestedPrice,
     shopeeFee:costs.shopeeFee,netReceived:costs.netReceived,
@@ -928,7 +1082,7 @@ async function saveProduct(){
   };
   await pushProduct(p);
   photoData=null;aiResult={title:'',desc:'',prices:null};
-  formState={name:'',desc:''};
+  formState={name:'',desc:'',sku:'',aliases:'',shopeeKalineUrl:'',shopeeMateusUrl:'',tiktokUrl:'',category:'',notes:''};
   swTab('produtos');
 }
 

@@ -19,8 +19,9 @@ O JM 3D Precificador calcula precos de produtos impressos em 3D e gerencia um ca
 - Upload e compressao local de foto.
 - PIN de acesso.
 - Importacao em lote de relatorios Shopee/TikTok.
-- Dashboard de lucro real por marketplace/loja.
+- Dashboard financeiro com recebimentos, custos, resultado, alertas e graficos.
 - Precificacao profissional por Shopee, TikTok Shop e venda direta.
+- Catalogo profissional espelhado com SKU, aliases e links por marketplace.
 
 ## Arquitetura atual
 
@@ -53,9 +54,11 @@ O projeto tem uma camada Android pequena e a maior parte da regra de negocio den
 - Processa XLSX e CSV usando SheetJS local.
 - Detecta Shopee Income, Shopee Order.completed, TikTok income e TikTok Orders CSV.
 - Normaliza dinheiro, datas e nomes de colunas.
-- Evita duplicidade por marketplace, loja, pedido e item/SKU.
+- Cruza TikTok Income quando os detalhes do pedido e extratos financeiros estao em abas separadas.
+- Evita duplicidade por marketplace, loja e pedido.
 - Calcula custo real, lucro, margem e status de saude do preco.
 - Permite vinculo manual entre produto importado e produto cadastrado.
+- Faz vinculo automatico por SKU, itemId/link, alias e nome parecido.
 
 ## Firebase
 
@@ -63,11 +66,16 @@ O app usa Firebase Realtime Database nos caminhos:
 
 - `products`
 - `appConfig`
-- `marketplaceOrders`
-- `marketplaceSettings`
-- `productMatchRules`
+- `users/default/productCatalog`
+- `users/default/marketplaceOrders`
+- `users/default/marketplaceSettings`
+- `users/default/productMatchRules`
+
+Os caminhos legados `marketplaceOrders`, `marketplaceSettings` e `productMatchRules` ainda sao lidos como fallback, mas novas gravacoes da analise devem ir para `users/default/...`.
 
 Os dados existentes devem continuar compativeis. Campos opcionais devem ser enviados como `null` ou omitidos, nunca como `undefined`.
+
+`products` continua sendo a estrutura principal do cadastro antigo. O novo `productCatalog` e um espelho/migracao aditiva usado pela analise profissional e pela vinculacao dos relatorios.
 
 ## Problemas ja resolvidos que nao devem voltar
 

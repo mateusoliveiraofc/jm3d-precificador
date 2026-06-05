@@ -26,21 +26,56 @@ function detectImportKind(fileName,sheets){
   if(n.startsWith('income')||joined.includes('valor total a ser liquidado'))return 'tiktok_income';
   return 'unknown';
 }
+function canonicalMarketplace(v){
+  const n=norm(v);
+  if(n.includes('tiktok'))return 'tiktokShop';
+  if(n.includes('shopee'))return 'shopee';
+  if(n.includes('direct'))return 'direct';
+  return v||'unknown';
+}
+function marketplaceFilterValue(v){
+  const c=canonicalMarketplace(v);
+  return c==='tiktokShop'?'tiktokShop':c;
+}
+function isIncomeKind(kind){
+  return norm(kind).includes('income');
+}
 function makeImportId(o){
-  const item=o.sku||o.productName||'pedido';
-  return [o.marketplace,o.store,o.orderId,item].map(slug).join('__');
+  return [canonicalMarketplace(o.marketplace),o.store,o.orderId].map(slug).join('_');
 }
 function mergeOrderLine(map,o){
   if(!o.orderId)return;
   o.id=makeImportId(o);
   const old=map[o.id]||{};
+  const hasOld=!!old.id;
+  const sameKind=!hasOld||old.kind===o.kind;
+  const preferNewFinancial=isIncomeKind(o.kind)&&!isIncomeKind(old.kind);
+  const preferOldFinancial=isIncomeKind(old.kind)&&!isIncomeKind(o.kind);
+  const money=(field,abs=false)=>{
+    const oldVal=Number(old[field])||0, newVal=Number(o[field])||0;
+    if(!hasOld)return abs?Math.abs(newVal):newVal;
+    if(sameKind)return abs?Math.abs(oldVal)+Math.abs(newVal):oldVal+newVal;
+    if(preferNewFinancial)return abs?Math.abs(newVal):newVal;
+    if(preferOldFinancial)return abs?Math.abs(oldVal):oldVal;
+    const chosen=Math.abs(newVal)>Math.abs(oldVal)?newVal:oldVal;
+    return abs?Math.abs(chosen):chosen;
+  };
+  const oldNames=old.importedProductNames||[];
+  const oldSkus=old.importedSkus||[];
+  const names=[...oldNames,old.productName,o.productName].filter(Boolean);
+  const skus=[...oldSkus,old.sku,o.sku].filter(Boolean);
   map[o.id]=Object.assign({},old,o,{
-    gross:o.gross||old.gross||0,
-    net:o.net||old.net||0,
-    fees:Math.abs(o.fees||old.fees||0),
-    shipping:o.shipping||old.shipping||0,
-    discounts:Math.abs(o.discounts||old.discounts||0),
-    qty:o.qty||old.qty||1,
+    id:o.id,
+    productName:[...new Set(names)].join(' + '),
+    sku:[...new Set(skus)].filter(Boolean)[0]||'',
+    importedProductNames:[...new Set(names)],
+    importedSkus:[...new Set(skus)],
+    gross:money('gross'),
+    net:money('net'),
+    fees:money('fees',true),
+    shipping:money('shipping'),
+    discounts:money('discounts',true),
+    qty:sameKind?(old.qty||0)+(o.qty||1):Math.max(old.qty||1,o.qty||1),
     sourceFiles:[...new Set([...(old.sourceFiles||[]),...(o.sourceFiles||[])])]
   });
 }
@@ -65,6 +100,7 @@ function parseShopeeIncome(sheets,fileName){
         date:parseDateFlexible(pick(obj,['Data de conclusão do pagamento','Data de criação do pedido'])),
         paidDate:parseDateFlexible(pick(obj,['Data de conclusão do pagamento'])),
         sku:cleanCell(pick(obj,['SKU'])).replace(/^[-/]$/,''),
+        itemId:cleanCell(pick(obj,['SKU'])).replace(/^[-/]$/,''),
         productName:cleanCell(pick(obj,['Nome do produto'])),
         qty:1,gross,net,fees,discounts,
         shipping:sumMoney(obj,['Frete cobrado pelo parceiro logístico','Desconto de frete pela Shopee','Taxa de envio reverso']),
@@ -91,6 +127,7 @@ function parseShopeeCompleted(sheets,fileName){
       date:parseDateFlexible(pick(obj,['Data de criação do pedido','Hora do pagamento do pedido'])),
       paidDate:parseDateFlexible(pick(obj,['Hora do pagamento do pedido'])),
       sku:cleanCell(pick(obj,['Número de referência SKU','Nº de referência do SKU principal'])),
+      itemId:cleanCell(pick(obj,['Número de referência SKU','Nº de referência do SKU principal'])),
       productName:cleanCell(pick(obj,['Nome do Produto'])),
       qty:parseInt(pick(obj,['Quantidade','Número de produtos pedidos']))||1,
       gross:parseMoneyBR(pick(obj,['Valor Total','Subtotal do produto','Preço acordado'])),
@@ -115,10 +152,11 @@ function parseTikTokOrders(sheets,fileName){
     const gross=parseMoneyBR(pick(obj,['SKU Subtotal Before Discount','Order Amount']));
     const net=parseMoneyBR(pick(obj,['Order Amount','SKU Subtotal After Discount']));
     out.push({
-      marketplace:'tiktok',store:'TikTok Shop',kind:'TikTok Orders',orderId,
+      marketplace:'tiktokShop',store:'TikTok Shop',kind:'TikTok Orders',orderId,
       date:parseDateFlexible(pick(obj,['Created Time','Paid Time'])),
       paidDate:parseDateFlexible(pick(obj,['Paid Time'])),
       sku:cleanCell(pick(obj,['Seller SKU','SKU ID'])),
+      itemId:cleanCell(pick(obj,['SKU ID'])),
       productName:cleanCell(pick(obj,['Product Name'])),
       qty:parseInt(pick(obj,['Quantity']))||1,
       gross,net,fees:Math.max(0,gross-net),
@@ -132,6 +170,68 @@ function parseTikTokOrders(sheets,fileName){
 }
 function parseTikTokIncome(sheets,fileName){
   const out=[];
+  const statements={};
+  sheets.forEach(sheet=>{
+    const hi=findHeaderRow(sheet.rows,['id do demonstrativo','valor total a ser liquidado']);
+    if(hi<0)return;
+    const headers=sheet.rows[hi];
+    sheet.rows.slice(hi+1).forEach(row=>{
+      const obj=rowToObj(headers,row);
+      const statementId=cleanCell(pick(obj,['ID do demonstrativo']));
+      if(!statementId)return;
+      statements[statementId]={
+        statementId,
+        paymentId:cleanCell(pick(obj,['ID do pagamento'])),
+        status:cleanCell(pick(obj,['Status']))||'Pagos',
+        date:parseDateFlexible(pick(obj,['Data do demonstrativo'])),
+        net:parseMoneyBR(pick(obj,['Valor total a ser liquidado','Valor do pagamento'])),
+        gross:parseMoneyBR(pick(obj,['Vendas líquidas','Vendas liquidas','Subtotal do item antes dos descontos'])),
+        fees:Math.abs(parseMoneyBR(pick(obj,['Taxas']))),
+        shipping:parseMoneyBR(pick(obj,['Frete','Custo líquido de frete'])),
+        discounts:Math.abs(parseMoneyBR(pick(obj,['Ajustes','Descontos'])))
+      };
+    });
+  });
+
+  const detailRows=[];
+  sheets.forEach(sheet=>{
+    const hi=findHeaderRow(sheet.rows,['id do demonstrativo','nome do produto']);
+    if(hi<0)return;
+    const headers=sheet.rows[hi];
+    sheet.rows.slice(hi+1).forEach(row=>{
+      const obj=rowToObj(headers,row);
+      const statementId=cleanCell(pick(obj,['ID do demonstrativo']));
+      const productName=cleanCell(pick(obj,['Nome do produto']));
+      const orderId=cleanCell(pick(obj,['ID do pedido/ajuste','ID do pedido','ID do pedido ajuste']));
+      if(!statementId||!productName||!orderId)return;
+      detailRows.push({
+        statementId,orderId,productName,
+        date:parseDateFlexible(pick(obj,['Data de criação do pedido','Data de criacao do pedido','Data do demonstrativo'])),
+        qty:parseInt(pick(obj,['Quantidade']))||1,
+        sku:cleanCell(pick(obj,['ID do SKU','SKU ID'])),
+        itemId:cleanCell(pick(obj,['ID do SKU','SKU ID'])),
+        status:cleanCell(pick(obj,['Status']))||statements[statementId]?.status||'Pagos'
+      });
+    });
+  });
+  if(detailRows.length){
+    const totals={};
+    detailRows.forEach(r=>{totals[r.statementId]=(totals[r.statementId]||0)+r.qty;});
+    detailRows.forEach(r=>{
+      const st=statements[r.statementId]||{};
+      const share=(r.qty||1)/(totals[r.statementId]||1);
+      out.push({
+        marketplace:'tiktokShop',store:'TikTok Shop',kind:'TikTok Income',orderId:r.orderId,
+        date:r.date||st.date,paidDate:st.date,
+        sku:r.sku,itemId:r.itemId,productName:r.productName,qty:r.qty,
+        gross:(st.gross||0)*share,net:(st.net||0)*share,fees:(st.fees||0)*share,
+        shipping:(st.shipping||0)*share,discounts:(st.discounts||0)*share,
+        status:r.status,sourceFiles:[fileName]
+      });
+    });
+    return out.filter(o=>o.productName||o.net||o.gross);
+  }
+
   sheets.forEach(sheet=>{
     const hi=findHeaderRow(sheet.rows,['id do pedido','nome do produto','valor total a ser liquidado']);
     if(hi<0)return;
@@ -145,10 +245,11 @@ function parseTikTokIncome(sheets,fileName){
       const gross=parseMoneyBR(pick(obj,['Vendas líquidas','Subtotal do item antes dos descontos','Preço do SKU']))||net;
       const fees=Math.abs(sumMoney(obj,['Taxas','Taxa de comissão','Taxa da plataforma','Taxa de transação']));
       out.push({
-        marketplace:'tiktok',store:'TikTok Shop',kind:'TikTok Income',orderId,
+        marketplace:'tiktokShop',store:'TikTok Shop',kind:'TikTok Income',orderId,
         date:parseDateFlexible(pick(obj,['Data do demonstrativo','Data de início do pagamento','Data de criacao do pedido'])),
         paidDate:parseDateFlexible(pick(obj,['Data de conclusão do pagamento'])),
         sku:cleanCell(pick(obj,['SKU ID','ID do SKU'])),
+        itemId:cleanCell(pick(obj,['ID do pedido','ID do SKU','SKU ID'])),
         productName,qty:parseInt(pick(obj,['Quantidade']))||1,
         gross,net,fees,
         shipping:parseMoneyBR(pick(obj,['Frete'])),
@@ -212,16 +313,31 @@ async function processMarketplaceFiles(files){
   };
   renderImportReview();
 }
-function findProductForOrder(o){
-  const rule=productMatchRules[slug(o.sku||o.productName)]||productMatchRules[slug(o.productName)];
+function findProductMatch(o){
+  const catalog=typeof mergedProductCatalog==='function'?mergedProductCatalog():localProducts;
+  const rule=productMatchRules[slug(o.sku||o.productName)]||productMatchRules[slug(o.itemId||'')]||productMatchRules[slug(o.productName)];
   if(rule){
-    const p=localProducts.find(x=>x.id===rule.productId);
-    if(p)return p;
+    const p=catalog.find(x=>x.id===rule.productId||x.legacyProductId===rule.productId);
+    if(p)return {product:p,confidence:1,method:'manual'};
+  }
+  const sku=norm(o.sku);
+  if(sku){
+    const p=catalog.find(x=>norm(x.sku)===sku);
+    if(p)return {product:p,confidence:.98,method:'sku'};
+  }
+  const item=norm(o.itemId);
+  if(item){
+    const p=catalog.find(x=>Object.values(x.links||{}).some(link=>norm(link).includes(item))||norm(x.sku).includes(item));
+    if(p)return {product:p,confidence:.9,method:'itemId/link'};
   }
   const on=norm(o.productName);
-  if(!on)return null;
+  if(!on)return {product:null,confidence:0,method:'none'};
+  for(const p of catalog){
+    const aliases=[...(p.aliases||[]),p.name].map(norm);
+    if(aliases.some(a=>a&&on.includes(a)))return {product:p,confidence:.86,method:'alias'};
+  }
   let best=null,bestScore=0;
-  localProducts.forEach(p=>{
+  catalog.forEach(p=>{
     const pn=norm(p.name);
     let score=pn===on?100:(on.includes(pn)||pn.includes(on)?70:0);
     if(!score){
@@ -232,30 +348,77 @@ function findProductForOrder(o){
     }
     if(score>bestScore){best=p;bestScore=score;}
   });
-  return bestScore>=35?best:null;
+  return bestScore>=35?{product:best,confidence:Math.min(.84,bestScore/100),method:'nome parecido'}:{product:null,confidence:0,method:'none'};
+}
+function findProductForOrder(o){
+  return findProductMatch(o).product;
 }
 function productUnitCost(product,meiUnit=0){
   const s=getMarketplaceSettings(), cfg=getLocalConfig();
-  if(!product)return {total:meiUnit,filament:0,energy:0,packaging:0,bubble:0,extra:0,mei:meiUnit};
-  const weight=Number(product.weight)||0, printH=Number(product.printH)||0;
-  const filament=weight/1000*(s.filamentKgPrice||95);
-  const energy=printH*(s.printerKwhHour||0.1)*(s.energyKwhPrice||1.05);
-  const packaging=Number(product.breakdown?.pkg)||0;
-  const bubble=Number(product.breakdown?.bubble)||cfg.bubbleUnit||0;
-  const maint=Number(product.breakdown?.maint)||cfg.maintenance||0;
-  const base=filament+energy+packaging+bubble+maint+(s.labelCost||0)+(s.postProcessCost||0)+(s.nozzleWearCost||0)+(s.otherProductionCost||0);
-  const loss=base*((s.lossPct||0)/100);
-  return {total:base+loss+meiUnit,filament,energy,packaging,bubble,extra:maint+loss+(s.labelCost||0)+(s.postProcessCost||0)+(s.nozzleWearCost||0)+(s.otherProductionCost||0),mei:meiUnit};
+  if(!product)return {total:meiUnit,filament:0,energy:0,packaging:0,bubble:0,label:0,maintenance:0,waste:0,postProcess:0,nozzleWear:0,extra:0,mei:meiUnit,other:0};
+  const pc=product.costs||{};
+  const weight=Number(pc.weightGrams ?? product.weight)||0;
+  const printH=Number(pc.printTimeHours ?? product.printH)||0;
+  const filament=weight/1000*(Number(pc.filamentCostPerKg)||s.filamentKgPrice||95);
+  const energy=printH*(Number(pc.energyKwhPerHour)||s.printerKwhHour||0.1)*(Number(pc.energyCostPerKwh)||s.energyKwhPrice||1.05);
+  const packaging=Number(pc.packaging ?? product.breakdown?.pkg)||0;
+  const bubble=Number(pc.bubbleWrap ?? product.breakdown?.bubble)||cfg.bubbleUnit||0;
+  const label=Number(pc.label)||s.labelCost||0;
+  const maintenance=Number(pc.maintenance ?? product.breakdown?.maint)||cfg.maintenance||0;
+  const extra=Number(pc.extraCost)||s.otherProductionCost||0;
+  const postProcess=Number(pc.postProcessCost)||s.postProcessCost||0;
+  const nozzleWear=Number(pc.nozzleWearCost)||s.nozzleWearCost||0;
+  const base=filament+energy+packaging+bubble+label+maintenance+extra+postProcess+nozzleWear;
+  const loss=base*((Number(pc.wastePercent)||s.lossPct||0)/100);
+  const other=label+maintenance+loss+extra+postProcess+nozzleWear;
+  return {total:base+loss+meiUnit,filament,energy,packaging,bubble,label,maintenance,waste:loss,postProcess,nozzleWear,extra,mei:meiUnit,other};
 }
 function enrichOrder(o,meiUnit=0){
-  const product=findProductForOrder(o);
+  o=Object.assign({},o,{marketplace:canonicalMarketplace(o.marketplace),orderId:o.orderId||o.id,productName:o.productName||o.importedProductName,sku:o.sku||o.importedSku,qty:o.qty||o.quantity||1,date:o.date||o.orderDate,paymentDate:o.paymentDate||o.paidDate});
+  const match=findProductMatch(o);
+  const product=match.product;
   const c=productUnitCost(product,meiUnit);
   const qty=Number(o.qty)||1;
-  const net=o.net||(o.gross-Math.abs(o.fees||0)-Math.abs(o.discounts||0)-Math.abs(o.shipping||0));
+  const fin=o.financial||{};
+  const gross=Number(fin.grossAmount ?? o.gross)||0;
+  const fees=Math.abs(Number(fin.commissionFee||0)+Number(fin.fixedFee||0)+Number(fin.transactionFee||0)+Number(fin.affiliateFee||0)+Number(fin.otherFees||0))||Math.abs(Number(o.fees)||0);
+  const discounts=Math.abs(Number(fin.marketplaceDiscount||0)+Number(fin.sellerDiscount||0))||Math.abs(Number(o.discounts)||0);
+  const shipping=Number(fin.shippingCostToSeller ?? o.shipping)||0;
+  const net=Number(fin.netReceived ?? o.net)||(gross-fees-discounts-Math.abs(shipping));
   const cost=c.total*qty;
   const profit=net-cost;
   const margin=net>0?profit/net*100:0;
-  return Object.assign({},o,{id:o.id||makeImportId(o),linkedProductId:product?.id||'',linkedProductName:product?.name||'',unitCost:c.total,totalCost:cost,net,profit,margin,health:profit<0?'bad':margin<15?'warn':'ok',costParts:c});
+  const health=profit<0?'prejuizo':margin<15?'margem_baixa':margin<25?'atenção':'healthy';
+  return Object.assign({},o,{
+    id:o.id||makeImportId(o),
+    orderDate:o.date||o.orderDate||'',
+    paymentDate:o.paymentDate||o.paidDate||o.date||'',
+    importedProductName:o.productName||'',
+    importedSku:o.sku||'',
+    importedItemId:o.itemId||o.importedItemId||'',
+    linkedProductId:product?.id||'',
+    linkedProductName:product?.name||'',
+    linkConfidence:match.confidence,
+    linkMethod:match.method,
+    quantity:qty,
+    financial:{
+      grossAmount:gross,marketplaceDiscount:Math.abs(Number(fin.marketplaceDiscount)||0),
+      sellerDiscount:Math.abs(Number(fin.sellerDiscount)||0),shippingCharged:Number(fin.shippingCharged)||0,
+      shippingCostToSeller:shipping,commissionFee:Number(fin.commissionFee)||0,fixedFee:Number(fin.fixedFee)||0,
+      transactionFee:Number(fin.transactionFee)||0,affiliateFee:Number(fin.affiliateFee)||0,
+      otherFees:fees,netReceived:net
+    },
+    productionCost:{
+      filament:c.filament,energy:c.energy,packaging:c.packaging,bubbleWrap:c.bubble,
+      label:c.label,maintenance:c.maintenance,waste:c.waste,postProcess:c.postProcess,
+      nozzleWear:c.nozzleWear,extraCost:c.extra,meiAllocated:c.mei,totalUnitCost:c.total,totalCost:cost
+    },
+    profit:{netProfit:profit,marginPercent:margin,status:health},
+    unitCost:c.total,totalCost:cost,net,profit,margin,
+    health:profit<0?'bad':margin<15?'warn':'ok',
+    costParts:c,
+    updatedAt:new Date().toISOString()
+  });
 }
 function analyzedOrders(){
   const base=marketplaceOrders.map(o=>Object.assign({},o));
@@ -266,27 +429,54 @@ function analyzedOrders(){
 }
 function filteredOrders(){
   return analyzedOrders().filter(o=>{
-    if(analysisFilters.marketplace!=='all'&&o.marketplace!==analysisFilters.marketplace)return false;
+    if(analysisFilters.marketplace!=='all'&&marketplaceFilterValue(o.marketplace)!==analysisFilters.marketplace)return false;
     if(analysisFilters.store!=='all'&&o.store!==analysisFilters.store)return false;
     if(analysisFilters.health==='bad'&&o.health!=='bad')return false;
     if(analysisFilters.health==='unlinked'&&o.linkedProductId)return false;
     const q=norm(analysisFilters.q);
     if(q&&!norm(`${o.orderId} ${o.productName} ${o.linkedProductName}`).includes(q))return false;
+    if(!isInsidePeriod(o))return false;
     return true;
   });
+}
+function isInsidePeriod(o){
+  const d=parseDateFlexible(o.paymentDate||o.paidDate||o.date||o.orderDate);
+  if(!d)return true;
+  const day=new Date(d+'T00:00:00');
+  const today=new Date(); today.setHours(0,0,0,0);
+  if(analysisFilters.period==='today')return day.getTime()===today.getTime();
+  if(analysisFilters.period==='7d')return day>=new Date(today.getTime()-6*86400000);
+  if(analysisFilters.period==='30d')return day>=new Date(today.getTime()-29*86400000);
+  if(analysisFilters.period==='custom'){
+    const from=analysisFilters.from?new Date(analysisFilters.from+'T00:00:00'):null;
+    const to=analysisFilters.to?new Date(analysisFilters.to+'T23:59:59'):null;
+    return (!from||day>=from)&&(!to||day<=to);
+  }
+  return true;
 }
 function summarizeOrders(orders){
   return orders.reduce((a,o)=>{
     const qty=Number(o.qty)||1;
-    a.gross+=Number(o.gross)||0;a.net+=Number(o.net)||0;a.fees+=Math.abs(Number(o.fees)||0);
+    a.gross+=Number(o.gross)||Number(o.financial?.grossAmount)||0;a.net+=Number(o.net)||Number(o.financial?.netReceived)||0;
+    a.fees+=Math.abs(Number(o.financial?.otherFees ?? o.fees)||0);
     a.cost+=Number(o.totalCost)||0;a.profit+=Number(o.profit)||0;a.qty+=qty;
-    a.energy+=Number(o.costParts?.energy||0)*qty;a.filament+=Number(o.costParts?.filament||0)*qty;
+    a.energy+=Number((o.productionCost?.energy ?? o.costParts?.energy)||0)*qty;
+    a.filament+=Number((o.productionCost?.filament ?? o.costParts?.filament)||0)*qty;
     a.packaging+=(Number(o.costParts?.packaging||0)+Number(o.costParts?.bubble||0))*qty;
-    a.mei+=Number(o.costParts?.mei||0)*qty;
+    a.mei+=Number((o.productionCost?.meiAllocated ?? o.costParts?.mei)||0)*qty;
+    a.other+=Number(o.costParts?.other ?? (
+      Number(o.productionCost?.label||0)+Number(o.productionCost?.maintenance||0)+
+      Number(o.productionCost?.waste||0)+Number(o.productionCost?.postProcess||0)+
+      Number(o.productionCost?.nozzleWear||0)+Number(o.productionCost?.extraCost||0)
+    ))*qty;
+    if(marketplaceFilterValue(o.marketplace)==='shopee')a.shopeeNet+=Number(o.net)||0,a.shopeeProfit+=Number(o.profit)||0;
+    if(marketplaceFilterValue(o.marketplace)==='tiktokShop')a.tiktokNet+=Number(o.net)||0,a.tiktokProfit+=Number(o.profit)||0;
+    if(o.store==='_kaline98')a.kalineNet+=Number(o.net)||0;
+    if(o.store==='mateusoliver98')a.mateusNet+=Number(o.net)||0;
     if(!o.linkedProductId)a.unlinked++; if(o.health==='bad')a.bad++;
     if(!/pago|conclu/i.test(o.status||''))a.pending++;
     return a;
-  },{gross:0,net:0,fees:0,cost:0,profit:0,qty:0,energy:0,filament:0,packaging:0,mei:0,unlinked:0,bad:0,pending:0});
+  },{gross:0,net:0,fees:0,cost:0,profit:0,qty:0,energy:0,filament:0,packaging:0,mei:0,other:0,shopeeNet:0,tiktokNet:0,kalineNet:0,mateusNet:0,shopeeProfit:0,tiktokProfit:0,unlinked:0,bad:0,pending:0});
 }
 function renderMetric(label,value,cls=''){
   return `<div class="metric ${cls}"><div class="ml">${label}</div><div class="mv">${value}</div></div>`;
@@ -304,26 +494,105 @@ function renderAnalysis(){
 function renderDashboardView(){
   const orders=filteredOrders(), s=summarizeOrders(orders), margin=s.net?s.profit/s.net*100:0;
   const stores=['all','_kaline98','mateusoliver98','TikTok Shop'];
-  return `<div class="filter-row">
-    <select class="fi" onchange="analysisFilters.store=this.value;renderAnalysis()">${stores.map(x=>`<option value="${x}" ${analysisFilters.store===x?'selected':''}>${x==='all'?'Todas as lojas':x}</option>`).join('')}</select>
-    <select class="fi" onchange="analysisFilters.marketplace=this.value;renderAnalysis()"><option value="all" ${analysisFilters.marketplace==='all'?'selected':''}>Todos marketplaces</option><option value="shopee" ${analysisFilters.marketplace==='shopee'?'selected':''}>Shopee</option><option value="tiktok" ${analysisFilters.marketplace==='tiktok'?'selected':''}>TikTok Shop</option></select>
-  </div>
-  <div class="dash-grid">
-    ${renderMetric('Vendas brutas',brl(s.gross))}
-    ${renderMetric('Líquido recebido',brl(s.net),'good')}
-    ${renderMetric('Taxas totais',brl(s.fees),'warn')}
-    ${renderMetric('Custos produção',brl(s.cost))}
-    ${renderMetric('Filamento',brl(s.filament))}
-    ${renderMetric('Energia',brl(s.energy))}
-    ${renderMetric('Embalagens',brl(s.packaging))}
-    ${renderMetric('DAS MEI rateado',brl(s.mei))}
-    ${renderMetric('Lucro líquido',brl(s.profit),s.profit>=0?'good':'bad')}
-    ${renderMetric('Margem média',pct(margin),margin>=15?'good':margin>=0?'warn':'bad')}
-    ${renderMetric('Pendentes',s.pending,'warn')}
-    ${renderMetric('Com prejuízo',s.bad,'bad')}
-  </div>
-  ${renderProductSummary(orders)}
-  <button class="btn btn-export" onclick="exportAnalysisCsv()">Exportar CSV da análise</button>`;
+  return `<div class="analysis-shell">
+    <div class="period-row">
+      ${['today','7d','30d','custom'].map(p=>`<button class="${analysisFilters.period===p?'on':''}" onclick="analysisFilters.period='${p}';renderAnalysis()">${p==='today'?'Hoje':p==='7d'?'7 dias':p==='30d'?'30 dias':'Período'}</button>`).join('')}
+    </div>
+    ${analysisFilters.period==='custom'?`<div class="filter-row"><input class="fi" type="date" value="${analysisFilters.from}" onchange="analysisFilters.from=this.value;renderAnalysis()"><input class="fi" type="date" value="${analysisFilters.to}" onchange="analysisFilters.to=this.value;renderAnalysis()"></div>`:''}
+    <div class="filter-row">
+      <select class="fi" onchange="analysisFilters.store=this.value;renderAnalysis()">${stores.map(x=>`<option value="${x}" ${analysisFilters.store===x?'selected':''}>${x==='all'?'Todas as lojas':x}</option>`).join('')}</select>
+      <select class="fi" onchange="analysisFilters.marketplace=this.value;renderAnalysis()"><option value="all" ${analysisFilters.marketplace==='all'?'selected':''}>Todos marketplaces</option><option value="shopee" ${analysisFilters.marketplace==='shopee'?'selected':''}>Shopee</option><option value="tiktokShop" ${analysisFilters.marketplace==='tiktokShop'?'selected':''}>TikTok Shop</option></select>
+    </div>
+    <section class="dash-section"><h3>Dinheiro que entrou <span>${orders.length} pedidos</span></h3><div class="finance-grid">
+      ${moneyCard('Recebido Shopee _kaline98',brl(s.kalineNet),'in')}
+      ${moneyCard('Recebido Shopee mateusoliver98',brl(s.mateusNet),'in')}
+      ${moneyCard('Recebido TikTok Shop',brl(s.tiktokNet),'in')}
+      ${moneyCard('Recebido Total',brl(s.net),'in','liquido já descontado')}
+    </div></section>
+    <section class="dash-section"><h3>Dinheiro que saiu <span>custos reais estimados</span></h3><div class="finance-grid">
+      ${moneyCard('Taxas marketplace',brl(s.fees),'out')}
+      ${moneyCard('Filamento',brl(s.filament),'out')}
+      ${moneyCard('Energia',brl(s.energy),'out')}
+      ${moneyCard('Embalagens',brl(s.packaging),'out')}
+      ${moneyCard('DAS MEI',brl(s.mei),'out')}
+      ${moneyCard('Outros custos',brl(s.other),'out')}
+    </div></section>
+    <section class="dash-section"><h3>Dinheiro que sobrou <span>resultado operacional</span></h3><div class="finance-grid">
+      ${moneyCard('Lucro líquido',brl(s.profit),s.profit>=0?'net':'risk')}
+      ${moneyCard('Margem líquida',pct(margin),margin>=15?'net':'risk')}
+      ${moneyCard('Lucro Shopee',brl(s.shopeeProfit),s.shopeeProfit>=0?'net':'risk')}
+      ${moneyCard('Lucro TikTok Shop',brl(s.tiktokProfit),s.tiktokProfit>=0?'net':'risk')}
+    </div></section>
+    <section class="dash-section"><h3>Gráficos <span>visão diária e composição</span></h3>
+      <div class="chart-card"><div class="chart-title">Recebimento por dia</div>${renderLineChart(dailySeries(orders,'net'),'#00CFFF')}</div>
+      <div class="chart-card"><div class="chart-title">Lucro líquido por dia</div>${renderLineChart(dailySeries(orders,'profit'),'#00E676')}</div>
+      <div class="chart-card"><div class="chart-title">Shopee vs TikTok Shop</div>${renderBarCompare([{label:'Shopee',value:s.shopeeProfit,color:'#00CFFF'},{label:'TikTok',value:s.tiktokProfit,color:'#FF8C00'}])}</div>
+      <div class="chart-card"><div class="chart-title">Composição dos custos</div>${renderCostDonut(s)}</div>
+    </section>
+    <section class="dash-section"><h3>Alertas <span>ações prioritárias</span></h3>${renderAlerts(orders)}</section>
+    ${renderProductSummary(orders)}
+    <button class="btn btn-export" onclick="exportAnalysisCsv()">Exportar CSV da análise</button>
+  </div>`;
+}
+function moneyCard(label,value,cls,sub=''){
+  return `<div class="money-card ${cls}"><div class="tag">${label}</div><div class="amount">${value}</div>${sub?`<div class="sub">${sub}</div>`:''}</div>`;
+}
+function dailySeries(orders,field){
+  const map={};
+  orders.forEach(o=>{
+    const d=parseDateFlexible(o.paymentDate||o.paidDate||o.date||o.orderDate)||'sem data';
+    map[d]=(map[d]||0)+(Number(o[field])||0);
+  });
+  return Object.keys(map).sort().slice(-14).map(k=>({label:k.slice(5),value:map[k]}));
+}
+function renderLineChart(data,color){
+  if(!data.length)return '<div class="muted-note">Sem dados no período.</div>';
+  const w=320,h=130,p=18,max=Math.max(...data.map(d=>Math.abs(d.value)),1);
+  const pts=data.map((d,i)=>{
+    const x=p+(data.length===1?0:i*(w-p*2)/(data.length-1));
+    const y=h-p-((d.value+max)/(max*2))*(h-p*2);
+    return `${x},${y}`;
+  }).join(' ');
+  return `<svg class="chart-svg" viewBox="0 0 ${w} ${h}" aria-label="gráfico de linha">
+    <line x1="${p}" y1="${h/2}" x2="${w-p}" y2="${h/2}" stroke="#263044"/>
+    <polyline fill="none" stroke="${color}" stroke-width="3" points="${pts}"/>
+    ${data.map((d,i)=>`<text x="${p+i*(w-p*2)/Math.max(1,data.length-1)}" y="${h-3}" fill="#8899BB" font-size="9" text-anchor="middle">${d.label}</text>`).join('')}
+  </svg>`;
+}
+function renderBarCompare(items){
+  const max=Math.max(...items.map(i=>Math.abs(i.value)),1);
+  return `<svg class="chart-svg" viewBox="0 0 320 140">${items.map((it,i)=>{
+    const x=45+i*130, bw=70, bh=Math.abs(it.value)/max*85, y=105-bh;
+    return `<rect x="${x}" y="${y}" width="${bw}" height="${bh}" rx="5" fill="${it.color}"/><text x="${x+bw/2}" y="124" fill="#8899BB" font-size="11" text-anchor="middle">${it.label}</text><text x="${x+bw/2}" y="${Math.max(14,y-6)}" fill="#fff" font-size="11" text-anchor="middle">${brl(it.value)}</text>`;
+  }).join('')}</svg>`;
+}
+function renderCostDonut(s){
+  const parts=[
+    {label:'Filamento',value:s.filament,color:'#00CFFF'},
+    {label:'Energia',value:s.energy,color:'#FF8C00'},
+    {label:'Embalagem',value:s.packaging,color:'#7B2FFF'},
+    {label:'Marketplace',value:s.fees,color:'#FF3B8B'},
+    {label:'MEI',value:s.mei,color:'#00E676'}
+  ];
+  const total=parts.reduce((t,p)=>t+p.value,0)||1;
+  let acc=0;
+  const circles=parts.map(p=>{
+    const dash=p.value/total*100, off=25-acc; acc+=dash;
+    return `<circle cx="60" cy="60" r="42" fill="none" stroke="${p.color}" stroke-width="16" stroke-dasharray="${dash} ${100-dash}" stroke-dashoffset="${off}"/>`;
+  }).join('');
+  return `<div class="donut-wrap"><svg width="120" height="120" viewBox="0 0 120 120">${circles}<circle cx="60" cy="60" r="25" fill="#0F1522"/><text x="60" y="64" fill="#fff" font-size="12" text-anchor="middle">${brl(total)}</text></svg><div class="legend">${parts.map(p=>`<div><span style="background:${p.color}"></span>${p.label}: <b>${brl(p.value)}</b></div>`).join('')}</div></div>`;
+}
+function renderAlerts(orders){
+  const low=orders.filter(o=>o.health==='warn').length;
+  const bad=orders.filter(o=>o.health==='bad').length;
+  const unlinked=orders.filter(o=>!o.linkedProductId).length;
+  const best=[...orders].sort((a,b)=>b.profit-a.profit)[0];
+  return `<div class="alert-list">
+    <div class="alert-item"><b>Produtos com margem baixa</b><span>${low}</span></div>
+    <div class="alert-item"><b>Produtos com prejuízo</b><span>${bad}</span></div>
+    <div class="alert-item"><b>Produtos sem vínculo</b><span>${unlinked}</span></div>
+    <div class="alert-item"><b>Produto mais lucrativo</b><span>${best?esc(best.linkedProductName||best.productName):'sem dados'}</span></div>
+  </div>`;
 }
 function renderProductSummary(orders){
   const map={};
@@ -384,14 +653,18 @@ function renderOrderCard(o){
 }
 function openLinkProduct(orderId){
   const o=analyzedOrders().find(x=>x.id===orderId); if(!o)return;
-  openSht('Vincular produto',`<div class="muted-note">Produto no relatório:<br><b>${esc(o.productName)}</b></div><select class="fi" id="link-product">${localProducts.map(p=>`<option value="${p.id}" ${p.id===o.linkedProductId?'selected':''}>${esc(p.name)}</option>`).join('')}</select><button class="btn btn-save" onclick="saveProductLink('${o.id}')">Salvar vínculo</button><button class="btn btn-secondary" onclick="closeSht()">Cancelar</button>`);
+  const catalog=typeof mergedProductCatalog==='function'?mergedProductCatalog():localProducts;
+  openSht('Vincular produto',`<div class="muted-note">Produto no relatório:<br><b>${esc(o.productName)}</b><br>SKU/item: ${esc(o.sku||o.itemId||'-')}</div><select class="fi" id="link-product">${catalog.map(p=>`<option value="${p.id}" ${p.id===o.linkedProductId?'selected':''}>${esc(p.name)}${p.sku?' • '+esc(p.sku):''}</option>`).join('')}</select><button class="btn btn-save" onclick="saveProductLink('${o.id}')">Salvar vínculo permanente</button><button class="btn btn-secondary" onclick="closeSht()">Cancelar</button>`);
 }
 function saveProductLink(orderId){
   const o=marketplaceOrders.find(x=>x.id===orderId)||importReview?.orders.find(x=>x.id===orderId); if(!o)return;
   const productId=document.getElementById('link-product')?.value; if(!productId)return;
-  const key=slug(o.sku||o.productName);
-  productMatchRules[key]={productId,source:o.productName||o.sku,savedTs:Date.now()};
-  if(matchRulesRef)matchRulesRef.child(key).set(sanitizeForFirebase(productMatchRules[key])).catch(()=>{});
+  const keys=[o.sku,o.itemId,o.productName].filter(Boolean).map(slug);
+  keys.forEach(key=>{productMatchRules[key]={productId,source:o.productName||o.sku||o.itemId,savedTs:Date.now()};});
+  if(matchRulesRef){
+    const updates={}; keys.forEach(key=>updates[key]=sanitizeForFirebase(productMatchRules[key]));
+    matchRulesRef.update(updates).catch(()=>{});
+  }
   closeSht();renderAnalysis();
 }
 function renderPricingView(){
@@ -418,11 +691,13 @@ function saveMarketCfgUI(){
   setSyncStatus('ok','✅ Custos globais salvos');renderAnalysis();
 }
 function renderPricingProducts(){
-  if(!localProducts.length)return '<div class="empty"><div class="ei">🧮</div><div>Cadastre produtos para simular preços profissionais.</div></div>';
-  return localProducts.slice(0,20).map(p=>{
+  const catalog=typeof mergedProductCatalog==='function'?mergedProductCatalog():localProducts;
+  if(!catalog.length)return '<div class="empty"><div class="ei">🧮</div><div>Cadastre produtos para simular preços profissionais.</div></div>';
+  return catalog.slice(0,20).map(p=>{
     const c=productUnitCost(p,0), min=priceForMargin(c.total,'shopee',0), sh10=priceForMargin(c.total,'shopee',10), sh30=priceForMargin(c.total,'shopee',30), tk30=priceForMargin(c.total,'tiktok',30);
-    const current=Number(p.price)||0, health=current&&current<min?'bad':current&&current<sh10?'warn':'ok';
-    return `<div class="order-card"><div class="order-top"><div><div class="order-title">${esc(p.name)}</div><div class="order-meta">Custo técnico ${brl(c.total)} • peso ${p.weight||0}g • ${p.printH||0}h</div></div><span class="health ${health}">${health==='bad'?'abaixo do mínimo':health==='warn'?'margem baixa':'preço saudável'}</span></div>
+    const current=Number(p.marketplaceSettings?.shopee?.salePrice ?? p.price)||0, health=current&&current<min?'bad':current&&current<sh10?'warn':'ok';
+    const weight=p.costs?.weightGrams??p.weight??0, hours=p.costs?.printTimeHours??p.printH??0;
+    return `<div class="order-card"><div class="order-top"><div><div class="order-title">${esc(p.name)}</div><div class="order-meta">SKU ${esc(p.sku||'-')} • Custo técnico ${brl(c.total)} • peso ${weight}g • ${hours}h</div></div><span class="health ${health}">${health==='bad'?'abaixo do mínimo':health==='warn'?'margem baixa':'preço saudável'}</span></div>
     <div class="cost-bars"><span style="width:${Math.min(100,c.filament/c.total*100||0)}%;background:var(--cyan)"></span><span style="width:${Math.min(100,c.energy/c.total*100||0)}%;background:var(--orange)"></span><span style="width:${Math.min(100,(c.packaging+c.bubble)/c.total*100||0)}%;background:var(--purple)"></span></div>
     <table class="mini-table"><tr><th>Canal</th><th>Mínimo</th><th>10%</th><th>30%</th><th>50%</th></tr><tr><td>Shopee</td><td>${brl(min)}</td><td>${brl(sh10)}</td><td>${brl(sh30)}</td><td>${brl(priceForMargin(c.total,'shopee',50))}</td></tr><tr><td>TikTok</td><td>${brl(priceForMargin(c.total,'tiktok',0))}</td><td>${brl(priceForMargin(c.total,'tiktok',10))}</td><td>${brl(tk30)}</td><td>${brl(priceForMargin(c.total,'tiktok',50))}</td></tr><tr><td>Direta</td><td>${brl(c.total)}</td><td>${brl(priceForMargin(c.total,'direct',10))}</td><td>${brl(priceForMargin(c.total,'direct',30))}</td><td>${brl(priceForMargin(c.total,'direct',50))}</td></tr></table></div>`;
   }).join('');
