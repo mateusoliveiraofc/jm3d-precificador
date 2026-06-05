@@ -1,0 +1,1 @@
+-keep class com.jm3d.precificador.** { *; }

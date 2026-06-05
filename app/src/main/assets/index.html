@@ -1,0 +1,1191 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>JM 3D Precificador</title>
+
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+:root{
+  --bg:#0D1117;--surf:#13181F;--surf2:#1A2030;--surf3:#212840;
+  --bdr:#252D3D;--bdr2:#2E3850;--text:#FFFFFF;--muted:#8899BB;
+  --cyan:#00CFFF;--purple:#7B2FFF;--pink:#FF3B8B;--orange:#FF8C00;
+  --grad:linear-gradient(135deg,#00CFFF 0%,#7B2FFF 40%,#FF3B8B 70%,#FF8C00 100%);
+  --grad-btn:linear-gradient(135deg,#00CFFF,#7B2FFF);
+  --grad-warm:linear-gradient(135deg,#FF3B8B,#FF8C00);
+  --green:#00E676;--red:#FF4444;
+  --r:14px;--rs:10px;
+}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:-apple-system,'Segoe UI',sans-serif;font-size:15px;overflow:hidden}
+#app{display:flex;flex-direction:column;height:100vh;height:100dvh}
+
+/* HEADER */
+#hdr{padding:calc(env(safe-area-inset-top,0px)+10px) 14px 10px;flex-shrink:0;background:var(--bg);border-bottom:1px solid var(--bdr);position:relative;overflow:hidden}
+#hdr::before{display:none}
+.hdr-inner{display:flex;align-items:center;gap:11px;position:relative;z-index:1}
+.logo-img{width:42px;height:42px;border-radius:12px;object-fit:contain;background:#fff;padding:2px;flex-shrink:0;box-shadow:0 4px 14px rgba(0,207,255,.3)}
+.hdr-text h1{font-size:18px;font-weight:700;color:#FFFFFF;letter-spacing:-.2px}
+.hdr-text p{font-size:11px;color:var(--muted);margin-top:1px}
+.hdr-actions{margin-left:auto;display:flex;gap:7px;align-items:center}
+.ibtn{background:rgba(255,255,255,.07);border:1px solid var(--bdr2);border-radius:10px;width:38px;height:38px;color:var(--muted);font-size:17px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.ibtn:active{background:rgba(0,207,255,.2)}
+.sync-dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex-shrink:0;transition:background .3s}
+.sync-dot.ok{background:var(--green);box-shadow:0 0 6px var(--green)}
+.sync-dot.err{background:var(--red)}
+.sync-dot.loading{background:var(--orange);animation:pulse .8s ease infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+/* SETUP SCREEN */
+#setup-screen{position:fixed;inset:0;background:var(--bg);z-index:9999;display:none!important;flex-direction:column;align-items:center;justify-content:center;padding:24px;overflow-y:auto}
+.setup-logo{width:80px;height:80px;border-radius:22px;object-fit:contain;background:#fff;padding:4px;margin-bottom:16px;box-shadow:0 8px 32px rgba(0,207,255,.3)}
+.setup-title{font-size:22px;font-weight:700;color:#FFFFFF;margin-bottom:6px;text-align:center}
+.setup-sub{font-size:13px;color:var(--muted);margin-bottom:24px;text-align:center;line-height:1.5}
+.setup-card{background:var(--surf);border:1px solid var(--bdr);border-radius:var(--r);padding:16px;width:100%;max-width:400px;margin-bottom:12px}
+.setup-card h3{font-size:13px;font-weight:700;margin-bottom:12px;display:flex;align-items:center;gap:7px}
+.setup-step{display:flex;align-items:flex-start;gap:10px;margin-bottom:10px;font-size:12px;color:var(--muted);line-height:1.5}
+.setup-num{width:22px;height:22px;border-radius:50%;background:var(--grad);color:#fff;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}
+.setup-link{color:var(--cyan);text-decoration:none;font-weight:600}
+
+/* TABS */
+#tabs{display:flex;background:var(--surf);border-bottom:1px solid var(--bdr);flex-shrink:0}
+.tab{flex:1;padding:11px 6px;font-size:12px;font-weight:700;color:var(--muted);cursor:pointer;border-bottom:2.5px solid transparent;text-align:center;transition:color .15s}
+.tab.active{color:var(--cyan);border-bottom-color:var(--cyan)}
+
+/* CONTENT */
+#content{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:12px 13px 100px}
+
+/* SECTIONS */
+.sec{background:var(--surf);border:1px solid var(--bdr);border-radius:var(--r);margin-bottom:11px;overflow:hidden}
+.sec-hdr{display:flex;align-items:center;gap:9px;padding:11px 14px;border-bottom:1px solid var(--bdr);background:rgba(255,255,255,.025)}
+.sec-title{font-size:14px;font-weight:700}
+.sec-body{padding:13px}
+
+/* FORM */
+.fl{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:5px;display:block}
+.fi{width:100%;background:var(--surf2);border:1px solid var(--bdr2);border-radius:var(--rs);color:var(--text);font-size:15px;padding:10px 12px;outline:none;-webkit-appearance:none;margin-bottom:11px;font-family:inherit}
+.fi:focus{border-color:var(--cyan)}
+textarea.fi{resize:none;min-height:65px}
+.fi-row2{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+
+/* PACKAGING */
+.pkg-opts{display:flex;gap:7px;margin-bottom:11px;overflow-x:auto;padding-bottom:4px;scrollbar-width:none}.pkg-opts::-webkit-scrollbar{display:none}.pkg-opt{flex:0 0 72px}
+.pkg-opt{flex:1;padding:8px 4px;background:var(--surf2);border:1.5px solid var(--bdr2);border-radius:var(--rs);text-align:center;cursor:pointer;transition:all .15s}
+.pkg-opt.on{border-color:var(--cyan);background:rgba(0,207,255,.08)}
+.pkg-opt .pi{font-size:17px;display:block;margin-bottom:2px}
+.pkg-opt .pl{font-size:10px;font-weight:700;color:var(--muted)}
+.pkg-opt.on .pl{color:var(--cyan)}
+.pkg-opt .pv{font-size:10px;color:var(--muted)}
+
+/* PROFIT SLIDER */
+.profit-row{display:flex;align-items:center;gap:10px;margin-bottom:11px}
+.profit-row label{font-size:12px;color:var(--muted);white-space:nowrap}
+.profit-row input[type=range]{flex:1;accent-color:var(--cyan)}
+.profit-badge{background:rgba(0,207,255,.15);border:1px solid rgba(0,207,255,.35);border-radius:8px;padding:5px 11px;font-size:14px;font-weight:800;color:var(--cyan);white-space:nowrap;min-width:62px;text-align:center}
+
+/* RESULT */
+.result-card{background:linear-gradient(135deg,rgba(0,207,255,.07),rgba(123,47,255,.05));border:1px solid rgba(0,207,255,.2);border-radius:var(--r);margin-bottom:11px;padding:14px}
+.breakdown{background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--rs);padding:11px 13px;margin-bottom:11px}
+.bk-row{display:flex;justify-content:space-between;font-size:12px;padding:3.5px 0;color:var(--muted)}
+.bk-row b{color:var(--text);font-weight:600}
+.bk-total{border-top:1px solid var(--bdr2);margin-top:5px;padding-top:7px;font-size:13px;font-weight:800}
+.bk-total b{color:var(--red)!important}
+.rr{display:flex;justify-content:space-between;font-size:13px;padding:4px 0}
+.rr .rl{color:var(--muted)}
+.rr .rv{font-weight:700}
+.formula-tip{background:rgba(255,140,0,.07);border:1px solid rgba(255,140,0,.2);border-radius:var(--rs);padding:9px 12px;margin-bottom:11px;font-size:11px;color:rgba(255,200,100,.9);line-height:1.6}
+.price-box{background:var(--grad);border-radius:13px;padding:16px;text-align:center;margin-top:8px}
+.price-box .pb-lbl{font-size:11px;color:rgba(255,255,255,.75);font-weight:700;margin-bottom:5px;letter-spacing:.5px}
+.price-box .pb-val{font-size:30px;font-weight:900;color:#fff}
+.price-box .pb-sub{font-size:11px;color:rgba(255,255,255,.65);margin-top:4px}
+
+/* AI */
+.ai-card{background:linear-gradient(135deg,rgba(123,47,255,.12),rgba(255,59,139,.08));border:1px solid rgba(123,47,255,.3);border-radius:var(--r);padding:14px;margin-bottom:11px}
+.ai-title{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;color:#a78bfa;margin-bottom:10px}
+.ai-output{background:rgba(0,0,0,.25);border:1px solid var(--bdr);border-radius:var(--rs);padding:11px;font-size:12px;line-height:1.6;color:var(--text);margin-bottom:8px;white-space:pre-wrap}
+.ai-output.loading{color:var(--muted);font-style:italic}
+.price-range{display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;margin-bottom:10px}
+.pr-box{background:rgba(0,0,0,.3);border:1px solid var(--bdr2);border-radius:var(--rs);padding:8px;text-align:center}
+.pr-box .prl{font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase;margin-bottom:3px}
+.pr-box .prv{font-size:14px;font-weight:800}
+
+/* BUTTONS */
+.btn{display:flex;align-items:center;justify-content:center;gap:7px;width:100%;border:none;border-radius:var(--r);padding:13px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;transition:opacity .15s;margin-bottom:8px}
+.btn:active{opacity:.8}
+.btn-primary{background:var(--grad-btn);color:#fff}
+.btn-save{background:linear-gradient(135deg,#00E676,#00B894);color:#000}
+.btn-export{background:var(--grad-warm);color:#fff}
+.btn-secondary{background:rgba(255,255,255,.06);border:1px solid var(--bdr2);color:var(--text)}
+.btn-danger{background:rgba(255,68,68,.15);border:1px solid rgba(255,68,68,.3);color:var(--red)}
+
+/* PRODUCTS */
+.prod-card{background:var(--surf);border:1px solid var(--bdr);border-radius:var(--r);margin-bottom:10px;overflow:hidden;animation:slideUp .3s ease}
+.prod-img{width:100%;height:150px;object-fit:cover}
+.prod-placeholder{width:100%;height:90px;background:linear-gradient(135deg,var(--surf2),var(--surf3));display:flex;align-items:center;justify-content:center;font-size:30px}
+.prod-body{padding:12px 13px}
+.prod-name{font-size:16px;font-weight:800;margin-bottom:3px}
+.prod-desc{font-size:12px;color:var(--muted);margin-bottom:9px;line-height:1.5}
+.chips{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:9px}
+.chip{padding:3px 9px;border-radius:20px;font-size:11px;font-weight:700}
+.c-cost{background:rgba(255,68,68,.1);color:var(--red);border:1px solid rgba(255,68,68,.2)}
+.c-price{background:rgba(0,230,118,.1);color:var(--green);border:1px solid rgba(0,230,118,.2)}
+.c-pct{background:rgba(0,207,255,.1);color:var(--cyan);border:1px solid rgba(0,207,255,.2)}
+.c-shopee{background:rgba(255,140,0,.1);color:var(--orange);border:1px solid rgba(255,140,0,.2)}
+.prod-btns{display:flex;gap:7px}
+.prod-btns button{flex:1;padding:8px;border:1px solid;border-radius:var(--rs);font-size:12px;font-weight:700;cursor:pointer;background:transparent}
+.pb-view{color:var(--cyan);border-color:rgba(0,207,255,.3)}
+.pb-share{color:var(--orange);border-color:rgba(255,140,0,.3)}
+.pb-del{color:var(--red);border-color:rgba(255,68,68,.3)}
+
+/* SYNC STATUS BANNER */
+.sync-banner{display:flex;align-items:center;gap:8px;padding:8px 13px;background:rgba(0,230,118,.08);border-bottom:1px solid rgba(0,230,118,.15);font-size:11px;color:var(--green);flex-shrink:0}
+.sync-banner.err{background:rgba(255,68,68,.08);border-color:rgba(255,68,68,.15);color:var(--red)}
+.sync-banner.loading{background:rgba(255,140,0,.08);border-color:rgba(255,140,0,.15);color:var(--orange)}
+
+/* SHEET */
+.ovl{position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:200;opacity:0;pointer-events:none;transition:opacity .2s}
+.ovl.on{opacity:1;pointer-events:all}
+.sht{position:fixed;bottom:0;left:0;right:0;background:#13181F;border:1px solid var(--bdr);border-bottom:none;border-radius:18px 18px 0 0;z-index:201;transform:translateY(100%);transition:transform .24s cubic-bezier(.4,0,.2,1);padding:18px 15px;padding-bottom:calc(24px + env(safe-area-inset-bottom));max-height:92vh;overflow-y:auto}
+.sht.on{transform:translateY(0)}
+.sht-hnd{width:36px;height:4px;background:var(--bdr2);border-radius:2px;margin:0 auto 14px}
+.sht-ttl{font-size:17px;font-weight:700;margin-bottom:14px;text-align:center;color:#FFFFFF}
+
+/* CONFIG */
+.cfg-row{display:flex;align-items:center;justify-content:space-between;padding:11px 0;border-bottom:1px solid var(--bdr)}
+.cfg-row:last-child{border:none}
+.cfg-lbl{font-size:13px;color:var(--text);font-weight:600}
+.cfg-sub{font-size:11px;color:var(--muted);margin-top:1px}
+.cfg-val{background:var(--surf2);border:1px solid var(--bdr2);border-radius:8px;color:var(--text);font-size:14px;padding:6px 10px;outline:none;width:100px;text-align:right;font-family:inherit}
+.cfg-val:focus{border-color:var(--cyan)}
+
+/* PHOTO */
+.photo-area{width:100%;height:130px;background:var(--surf2);border:2px dashed var(--bdr2);border-radius:var(--r);display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;margin-bottom:11px;overflow:hidden;position:relative}
+.photo-area img{width:100%;height:100%;object-fit:cover;position:absolute;inset:0}
+.photo-area .ph-hint{font-size:12px;color:var(--muted);position:relative}
+.photo-area .ph-ico{font-size:26px;margin-bottom:5px;position:relative}
+
+/* EMPTY */
+.empty{text-align:center;padding:48px 20px;color:var(--muted)}
+.empty .ei{font-size:44px;margin-bottom:12px}
+
+
+/* PRODUTOS TOOLBAR */
+.prod-toolbar{display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.search-box{flex:1;min-width:120px;background:var(--surf2);border:1px solid var(--bdr2);border-radius:var(--rs);padding:8px 12px;color:var(--text);font-size:14px;outline:none;font-family:inherit}
+.search-box:focus{border-color:var(--cyan)}
+.view-toggle{display:flex;background:var(--surf2);border:1px solid var(--bdr2);border-radius:var(--rs);overflow:hidden;flex-shrink:0}
+.vbtn{width:36px;height:36px;border:none;background:transparent;color:var(--muted);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s}
+.vbtn.on{background:rgba(0,207,255,.15);color:var(--cyan)}
+.sort-sel{background:var(--surf2);border:1px solid var(--bdr2);border-radius:var(--rs);color:var(--text);font-size:12px;padding:8px 10px;outline:none;font-family:inherit;-webkit-appearance:none;cursor:pointer}
+
+/* GRID VIEW */
+.prod-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.prod-grid .prod-card{margin-bottom:0}
+.prod-grid .prod-img{height:110px}
+.prod-grid .prod-placeholder{height:90px;font-size:24px}
+.prod-grid .prod-body{padding:9px 10px}
+.prod-grid .prod-name{font-size:13px;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.prod-grid .prod-desc{display:none}
+.prod-grid .chips{gap:3px;margin-bottom:7px}
+.prod-grid .chip{font-size:10px;padding:2px 6px}
+.prod-grid .prod-btns{gap:4px}
+.prod-grid .prod-btns button{padding:6px 4px;font-size:10px}
+
+/* LIST VIEW */
+.prod-list .prod-card{display:flex;align-items:center;gap:0}
+.prod-list .prod-img{width:80px;height:80px;flex-shrink:0;object-fit:cover}
+.prod-list .prod-placeholder{width:80px;height:80px;flex-shrink:0;font-size:22px}
+.prod-list .prod-body{flex:1;padding:10px 12px;min-width:0}
+.prod-list .prod-name{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.prod-list .prod-desc{display:none}
+.prod-list .chips{margin-bottom:7px}
+.prod-list .chip{font-size:10px;padding:2px 6px}
+.prod-list .prod-btns button{padding:6px 8px;font-size:11px}
+
+
+/* ── PIN SCREEN ── */
+#pin-screen{
+  position:fixed;inset:0;z-index:99999;
+  background:#0D1117;
+  display:flex;flex-direction:column;
+  align-items:center;justify-content:center;
+  padding:24px;
+}
+.pin-logo{width:72px;height:72px;border-radius:20px;object-fit:contain;background:#fff;padding:3px;margin-bottom:16px;box-shadow:0 4px 20px rgba(0,207,255,.3)}
+.pin-title{font-size:20px;font-weight:700;color:#fff;margin-bottom:4px}
+.pin-sub{font-size:13px;color:var(--muted);margin-bottom:32px}
+.pin-dots{display:flex;gap:14px;margin-bottom:36px}
+.pin-dot{width:14px;height:14px;border-radius:50%;border:2px solid var(--bdr2);transition:all .18s}
+.pin-dot.filled{background:var(--cyan);border-color:var(--cyan);box-shadow:0 0 10px rgba(0,207,255,.5);transform:scale(1.1)}
+.pin-dot.err{background:var(--red)!important;border-color:var(--red)!important;animation:shake .35s ease}
+.pin-pad{display:grid;grid-template-columns:repeat(3,80px);gap:12px;margin-bottom:16px}
+.pin-btn{
+  width:80px;height:80px;border-radius:50%;
+  background:var(--surf2);border:1px solid var(--bdr2);
+  color:var(--text);font-size:24px;font-weight:500;
+  cursor:pointer;display:flex;align-items:center;justify-content:center;
+  transition:transform .1s,background .1s;
+  -webkit-tap-highlight-color:transparent;
+}
+.pin-btn:active{transform:scale(.88);background:rgba(0,207,255,.2)}
+.pin-btn-sm{font-size:13px;color:var(--muted)}
+#pin-error{color:var(--red);font-size:13px;min-height:18px;text-align:center;font-weight:500}
+@keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-8px)}75%{transform:translateX(8px)}}
+
+@keyframes slideUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+@keyframes spin{to{transform:rotate(360deg)}}
+.anim{animation:slideUp .3s ease forwards}
+.spin{display:inline-block;animation:spin .8s linear infinite}
+</style>
+</head>
+<body>
+
+
+<!-- PIN SCREEN -->
+<div id="pin-screen">
+  <div class="pin-logo" style="overflow:hidden">
+    <img style="width:100%;height:100%;object-fit:contain" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAMVklEQVR42tWbe3Bc1X3HP+fcq109Vqu3jCWcFhv8AJJigg04puAEEkySUsiQSYinwUkgQNKEaQLTmZaQYehMM8x0QpM2McHAxGYcu4WEGdoS0oYSE5OEwTjgR1Hj+IFtFVmWvNJKu3fvPefXP3Yl7672cVdaecidsbX37rnn/N6P7zmrrLXCH/qlAKnwPP8vU5+zN3p6YM2LqtyL6t0jhOIrn2mV+69IU" alt="JM 3D">
+  </div>
+  <div class="pin-title">JM 3D</div>
+  <div class="pin-sub">Digite o PIN para acessar</div>
+  <div class="pin-dots">
+    <div class="pin-dot" id="pd0"></div>
+    <div class="pin-dot" id="pd1"></div>
+    <div class="pin-dot" id="pd2"></div>
+    <div class="pin-dot" id="pd3"></div>
+  </div>
+  <div class="pin-pad">
+    <button class="pin-btn" onclick="pinKey('1')">1</button>
+    <button class="pin-btn" onclick="pinKey('2')">2</button>
+    <button class="pin-btn" onclick="pinKey('3')">3</button>
+    <button class="pin-btn" onclick="pinKey('4')">4</button>
+    <button class="pin-btn" onclick="pinKey('5')">5</button>
+    <button class="pin-btn" onclick="pinKey('6')">6</button>
+    <button class="pin-btn" onclick="pinKey('7')">7</button>
+    <button class="pin-btn" onclick="pinKey('8')">8</button>
+    <button class="pin-btn" onclick="pinKey('9')">9</button>
+    <button class="pin-btn pin-btn-sm" onclick="pinClear()">Limpar</button>
+    <button class="pin-btn" onclick="pinKey('0')">0</button>
+    <button class="pin-btn" onclick="pinDel()" style="font-size:20px">⌫</button>
+  </div>
+  <div id="pin-error"></div>
+</div>
+
+<!-- SETUP SCREEN (shown when Firebase not configured) -->
+<div id="setup-screen" style="display:none">
+  <img class="setup-logo" src="data:image/png;base64,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" alt="JM 3D">
+  <div class="setup-title">JM 3D Precificador</div>
+  <div class="setup-sub">Configure o Firebase para sincronizar<br>entre o APK e a versão web em tempo real</div>
+
+  <div class="setup-card">
+    <h3>🔥 Criar Firebase Grátis (1x só)</h3>
+    <div class="setup-step"><div class="setup-num">1</div><div>Acesse <a class="setup-link" href="https://console.firebase.google.com" target="_blank">console.firebase.google.com</a> e clique em <b>Criar projeto</b></div></div>
+    <div class="setup-step"><div class="setup-num">2</div><div>Nome do projeto: <b>JM3D</b> → Desative o Google Analytics → Criar</div></div>
+    <div class="setup-step"><div class="setup-num">3</div><div>No painel, clique em <b>&lt;/&gt; Web</b> → Nome do app: JM3D → Registrar app</div></div>
+    <div class="setup-step"><div class="setup-num">4</div><div>Copie o <b>firebaseConfig</b> que aparecer e cole abaixo</div></div>
+    <div class="setup-step"><div class="setup-num">5</div><div>No menu esquerdo: <b>Build → Realtime Database → Criar banco de dados → Iniciar no modo de teste</b></div></div>
+  </div>
+
+  <div class="setup-card">
+    <h3>⚙️ Cole sua configuração Firebase</h3>
+    <label class="fl">apiKey</label>
+    <input class="fi" id="s-apiKey" placeholder="AIzaSy...">
+    <label class="fl">authDomain</label>
+    <input class="fi" id="s-authDomain" placeholder="jm3d.firebaseapp.com">
+    <label class="fl">databaseURL</label>
+    <input class="fi" id="s-dbUrl" placeholder="https://jm3d-default-rtdb.firebaseio.com">
+    <label class="fl">projectId</label>
+    <input class="fi" id="s-projectId" placeholder="jm3d-xxxxx">
+    <button class="btn btn-save" onclick="saveFirebaseConfig()" style="margin-top:4px">🔥 Conectar ao Firebase</button>
+  </div>
+</div>
+
+<!-- MAIN APP -->
+<div id="app">
+  <div id="hdr">
+    <div class="hdr-inner">
+      <img class="logo-img" src="data:image/png;base64,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" alt="JM 3D">
+      <div class="hdr-text">
+        <h1>JM 3D</h1>
+        <p>Precificador Shopee</p>
+      </div>
+      <div class="hdr-actions">
+        <div class="sync-dot" id="sync-dot" title="Status de sincronização"></div>
+        <button class="ibtn" onclick="openShareList()" title="Compartilhar catálogo">📤</button>
+        <button class="ibtn" onclick="openConfig()">⚙️</button>
+      </div>
+    </div>
+  </div>
+  <div id="sync-banner" class="sync-banner loading" style="display:none">
+    <span id="sync-txt">Conectando...</span>
+  </div>
+  <div id="tabs">
+    <div class="tab active" onclick="swTab('calc')">🧮 Calcular</div>
+    <div class="tab" onclick="swTab('produtos')">📦 Produtos</div>
+  </div>
+  <div id="content"></div>
+</div>
+
+<div class="ovl" id="ovl" onclick="closeSht()"></div>
+<div class="sht" id="sht">
+  <div class="sht-hnd"></div>
+  <div class="sht-ttl" id="sht-ttl"></div>
+  <div id="sht-body"></div>
+</div>
+<input type="file" id="fi-photo" accept="image/*" style="display:none" onchange="onPhotoSelected(event)">
+
+<script>
+// ── UTILS ──────────────────────────────────────────────────────────────────
+const uid=()=>Math.random().toString(36).slice(2,9);
+const brl=v=>'R$ '+Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+const pct=v=>Number(v).toFixed(1)+'%';
+const esc=s=>String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const ea=s=>String(s||'').replace(/"/g,'&quot;');
+
+// ── FIREBASE CONFIG ────────────────────────────────────────────────────────
+let db=null, productsRef=null, configRef=null;
+
+function getFirebaseConfig(){
+  return JSON.parse(localStorage.getItem('jm3d_firebase')||'null');
+}
+
+function saveFirebaseConfig(){
+  const cfg={
+    apiKey:document.getElementById('s-apiKey').value.trim(),
+    authDomain:document.getElementById('s-authDomain').value.trim(),
+    databaseURL:document.getElementById('s-dbUrl').value.trim(),
+    projectId:document.getElementById('s-projectId').value.trim(),
+  };
+  if(!cfg.apiKey||!cfg.databaseURL){alert('Preencha pelo menos apiKey e databaseURL!');return;}
+  localStorage.setItem('jm3d_firebase',JSON.stringify(cfg));
+  location.reload();
+}
+
+// Firebase config embutido — sem necessidade de configuração
+const FIREBASE_CFG = {
+  apiKey: "AIzaSyCU5CWuz4bD1R3YkmLBnsKyJewbzDbnJCM",
+  authDomain: "jm3d-68c59.firebaseapp.com",
+  databaseURL: "https://jm3d-68c59-default-rtdb.firebaseio.com",
+  projectId: "jm3d-68c59",
+  storageBucket: "jm3d-68c59.firebasestorage.app",
+  appId: "1:1020176231070:web:ee2667f7971a48f200298f"
+};
+
+function initFirebase(){
+  // Salva localmente para compatibilidade
+  localStorage.setItem('jm3d_firebase', JSON.stringify({
+    apiKey: FIREBASE_CFG.apiKey,
+    authDomain: FIREBASE_CFG.authDomain,
+    databaseURL: FIREBASE_CFG.databaseURL,
+    projectId: FIREBASE_CFG.projectId,
+  }));
+
+  // Nunca mostra setup screen
+  document.getElementById('setup-screen').style.display='none';
+  document.getElementById('app').style.display='flex';
+
+  try{
+    // Evita inicializar duas vezes
+    const app = firebase.apps.length
+      ? firebase.app()
+      : firebase.initializeApp(FIREBASE_CFG);
+    db=firebase.database();
+    productsRef=db.ref('products');
+    configRef=db.ref('appConfig');
+    return true;
+  }catch(e){
+    setSyncStatus('err','Erro Firebase: '+e.message);
+    return false;
+  }
+}
+
+// ── SYNC STATUS ────────────────────────────────────────────────────────────
+function setSyncStatus(state,msg){
+  const dot=document.getElementById('sync-dot');
+  const banner=document.getElementById('sync-banner');
+  const txt=document.getElementById('sync-txt');
+  dot.className='sync-dot '+state;
+  if(msg){
+    banner.style.display='flex';
+    banner.className='sync-banner '+(state==='err'?'err':state==='loading'?'loading':'');
+    txt.textContent=msg;
+    if(state==='ok') setTimeout(()=>banner.style.display='none',3000);
+  }
+}
+
+// ── LOCAL CACHE (fallback quando offline) ─────────────────────────────────
+let localProducts=[];
+function getLocalConfig(){
+  return JSON.parse(localStorage.getItem('jm3d_cfg')||JSON.stringify({
+    filamentKgPrice:100,bubbleUnit:0.50,lightMonthly:130,
+    maintenance:1.50,shopeePct:18,shopeeFixed:4.42,defaultProfit:250,
+    pkgSmall:1,pkgMedium:2,pkgLarge:4,pkgXL:6,pkgCustom:0
+  }));
+}
+function saveLocalConfig(c){localStorage.setItem('jm3d_cfg',JSON.stringify(c));}
+
+// ── FIREBASE LISTENERS ─────────────────────────────────────────────────────
+function startListeners(){
+  setSyncStatus('loading','Sincronizando...');
+
+  productsRef.on('value', snap=>{
+    const data=snap.val();
+    localProducts=data?Object.values(data).sort((a,b)=>b.savedTs-a.savedTs):[];
+    setSyncStatus('ok','✅ Sincronizado');
+    if(curTab==='produtos') renderProducts();
+  }, err=>{
+    setSyncStatus('err','❌ Sem conexão — modo offline');
+    localProducts=JSON.parse(localStorage.getItem('jm3d_products')||'[]');
+  });
+
+  configRef.on('value', snap=>{
+    const cfg=snap.val();
+    if(cfg){
+      localStorage.setItem('jm3d_cfg',JSON.stringify(cfg));
+      profitPct=cfg.defaultProfit||profitPct;
+    }
+  });
+}
+
+async function pushProduct(p){
+  setSyncStatus('loading','Salvando...');
+  try{
+    p.savedTs=Date.now();
+    await productsRef.child(p.id).set(p);
+    // Backup local
+    localStorage.setItem('jm3d_products',JSON.stringify(localProducts));
+    setSyncStatus('ok','✅ Produto salvo e sincronizado!');
+  }catch(e){
+    // Salva local se offline
+    localProducts.unshift(p);
+    localStorage.setItem('jm3d_products',JSON.stringify(localProducts));
+    setSyncStatus('err','📴 Salvo localmente (sem internet)');
+  }
+}
+
+async function deleteProduct(id){
+  if(!confirm('Excluir este produto de TODOS os dispositivos?'))return;
+  try{
+    await productsRef.child(id).remove();
+  }catch(e){
+    localProducts=localProducts.filter(p=>p.id!==id);
+    localStorage.setItem('jm3d_products',JSON.stringify(localProducts));
+    renderProducts();
+  }
+}
+
+async function syncConfig(cfg){
+  try{await configRef.set(cfg);}catch(e){}
+}
+
+// ── STATE ──────────────────────────────────────────────────────────────────
+let curTab='calc', curPkg='small', profitPct=250, manualPrice=null, photoData=null;
+let viewMode='grid', searchQ='', sortBy='newest';
+let formState={name:'',desc:''};
+let aiResult={title:'',desc:'',prices:null,loading:false};
+
+// ── CÁLCULO ────────────────────────────────────────────────────────────────
+function calcCosts(){
+  const cfg=getLocalConfig();
+  const weight=parseFloat(document.getElementById('c-weight')?.value)||0;
+  const printH=parseFloat(document.getElementById('c-time')?.value)||0;
+  const bubbles=parseInt(document.getElementById('c-bubbles')?.value)||1;
+  const pkgMap={
+    small:cfg.pkgSmall??1,
+    medium:cfg.pkgMedium??2,
+    large:cfg.pkgLarge??4,
+    xl:cfg.pkgXL??6,
+    custom:cfg.pkgCustom??0
+  };
+  const pkgCost=pkgMap[curPkg]??1;
+
+  const filamentCost=weight*(cfg.filamentKgPrice/1000);
+  const bubbleCost=bubbles*cfg.bubbleUnit;
+  const lightCost=(cfg.lightMonthly/30/24)*printH;
+  const maintCost=cfg.maintenance;
+  const totalCost=filamentCost+bubbleCost+pkgCost+lightCost+maintCost;
+
+  let suggestedPrice;
+  if(manualPrice!==null){
+    suggestedPrice=manualPrice;
+  } else {
+    // Garante o lucro desejado DEPOIS da Shopee descontar
+    const wantedNet=totalCost*(1+profitPct/100);
+    suggestedPrice=(wantedNet+cfg.shopeeFixed)/(1-cfg.shopeePct/100);
+  }
+
+  const shopeeFee=suggestedPrice*(cfg.shopeePct/100)+cfg.shopeeFixed;
+  const netReceived=suggestedPrice-shopeeFee;
+  const realProfit=netReceived-totalCost;
+  const realProfitPct=totalCost>0?(realProfit/totalCost*100):0;
+
+  return{filamentCost,bubbleCost,pkgCost,lightCost,maintCost,
+         totalCost,suggestedPrice,shopeeFee,netReceived,realProfit,realProfitPct,
+         weight,printH,bubbles};
+}
+
+// ── TABS ───────────────────────────────────────────────────────────────────
+function swTab(t){
+  if(curTab==='calc'){
+    formState.name=document.getElementById('c-name')?.value||formState.name;
+    formState.desc=document.getElementById('c-desc')?.value||formState.desc;
+  }
+  curTab=t;
+  document.querySelectorAll('.tab').forEach((el,i)=>
+    el.classList.toggle('active',['calc','produtos'][i]===t));
+  renderContent();
+}
+function renderContent(){curTab==='calc'?renderCalc():renderProducts();}
+
+// ── RENDER CALC ────────────────────────────────────────────────────────────
+
+function renderPkgOpts(){
+  const cfg=getLocalConfig();
+  const pkgs=[
+    {id:'small', icon:'📦', label:'Pequena', price:cfg.pkgSmall??1},
+    {id:'medium', icon:'📦', label:'Média',   price:cfg.pkgMedium??2},
+    {id:'large',  icon:'📦', label:'Grande',  price:cfg.pkgLarge??4},
+    {id:'xl',     icon:'🗃️', label:'XL',      price:cfg.pkgXL??6},
+  ];
+  // Adicionar caixa personalizada se tiver preço
+  if((cfg.pkgCustom??0)>0){
+    pkgs.push({id:'custom',icon:'✏️',label:'Caixa especial',price:cfg.pkgCustom});
+  }
+  return pkgs.map(p=>`
+    <div class="pkg-opt ${curPkg===p.id?'on':''}" onclick="setPkg('${p.id}')">
+      <span class="pi">${p.icon}</span>
+      <span class="pl">${p.label}</span>
+      <span class="pv">R$ ${p.price.toFixed(2).replace('.',',')}</span>
+    </div>`).join('');
+}
+
+function renderCalc(){
+  document.getElementById('content').innerHTML=`
+  <div class="sec anim">
+    <div class="sec-hdr"><span>🖨️</span><span class="sec-title">Dados do Produto</span></div>
+    <div class="sec-body">
+      <label class="fl">Nome do produto</label>
+      <input class="fi" type="text" id="c-name" placeholder="Ex: Vaso Geométrico P" value="${ea(formState.name)}">
+      <label class="fl">Descrição</label>
+      <textarea class="fi" id="c-desc" placeholder="Descreva o produto...">${esc(formState.desc)}</textarea>
+    </div>
+  </div>
+  <div class="sec anim" style="animation-delay:.04s">
+    <div class="sec-hdr"><span>⚙️</span><span class="sec-title">Custos de Produção</span></div>
+    <div class="sec-body">
+      <div class="fi-row2">
+        <div><label class="fl">Filamento (g)</label><input class="fi" type="number" id="c-weight" inputmode="decimal" placeholder="Ex: 45" oninput="updateResult()"></div>
+        <div><label class="fl">Tempo impressão (h)</label><input class="fi" type="number" id="c-time" inputmode="decimal" placeholder="Ex: 3.5" oninput="updateResult()"></div>
+      </div>
+      <label class="fl">Plástico bolha (unidades)</label>
+      <input class="fi" type="number" id="c-bubbles" inputmode="numeric" value="1" oninput="updateResult()">
+      <label class="fl">Embalagem</label>
+      <div class="pkg-opts" id="pkg-opts-wrap">
+        ${renderPkgOpts()}
+      </div>
+    </div>
+  </div>
+  <div class="sec anim" style="animation-delay:.08s">
+    <div class="sec-hdr"><span>📈</span><span class="sec-title">Margem de Lucro</span></div>
+    <div class="sec-body">
+      <div class="profit-row">
+        <label>Lucro</label>
+        <input type="range" min="50" max="600" step="10" value="${profitPct}" id="profit-sl" oninput="setProfitSlider(this.value)">
+        <span class="profit-badge" id="profit-badge">${profitPct}%</span>
+      </div>
+      <label class="fl">Preço manual (opcional)</label>
+      <input class="fi" type="number" id="c-manual" inputmode="decimal" placeholder="Deixe vazio para automático"
+        value="${manualPrice!==null?manualPrice:''}" oninput="setManualPrice(this.value)" style="margin-bottom:0">
+    </div>
+  </div>
+  <div id="result-area" class="anim" style="animation-delay:.12s"></div>
+  <div class="ai-card anim" style="animation-delay:.16s">
+    <div class="ai-title">🤖 <span>Assistente IA Shopee</span></div>
+    <button class="btn btn-primary" style="margin-bottom:8px" onclick="runAI()">✨ Gerar Título, Descrição e Faixa de Preços</button>
+    ${aiResult.prices?`<div style="margin-bottom:8px"><div style="font-size:10px;font-weight:700;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">Concorrentes na Shopee</div><div class="price-range"><div class="pr-box"><div class="prl">Mínimo</div><div class="prv" style="color:var(--red)">${aiResult.prices.min}</div></div><div class="pr-box"><div class="prl">Médio</div><div class="prv" style="color:var(--orange)">${aiResult.prices.med}</div></div><div class="pr-box"><div class="prl">Máximo</div><div class="prv" style="color:var(--green)">${aiResult.prices.max}</div></div></div></div>`:(aiResult.loading?'<div class="ai-output loading"><span class="spin">⏳</span> Consultando IA...</div>':'')}
+    ${aiResult.title?`<div style="font-size:10px;font-weight:700;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:.5px">Título sugerido</div><div class="ai-output">${esc(aiResult.title)}</div><div style="font-size:10px;font-weight:700;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:.5px">Descrição sugerida</div><div class="ai-output">${esc(aiResult.desc)}</div><button class="btn btn-secondary" style="font-size:12px;padding:9px" onclick="applyAI()">✅ Aplicar ao produto</button>`:''}
+  </div>
+  <div class="sec anim" style="animation-delay:.2s">
+    <div class="sec-hdr"><span>📷</span><span class="sec-title">Foto do Produto</span></div>
+    <div class="sec-body">
+      <div class="photo-area" onclick="document.getElementById('fi-photo').click()" id="photo-prev">
+        ${photoData?`<img src="${photoData}">`:`<span class="ph-ico">📷</span><span class="ph-hint">Toque para adicionar foto</span>`}
+      </div>
+    </div>
+  </div>
+  <div class="anim" style="animation-delay:.24s">
+    <button class="btn btn-save" onclick="saveProduct()">💾 Salvar e Sincronizar</button>
+    <button class="btn btn-export" onclick="exportCurrentProduct()">📤 Exportar Orçamento HTML</button>
+  </div>`;
+  updateResult();
+}
+
+function updateResult(){
+  const costs=calcCosts();
+  const cfg=getLocalConfig();
+  const el=document.getElementById('result-area');
+  if(!el)return;
+  const pc=costs.realProfit>=0?'var(--green)':'var(--red)';
+  const wantedNet=costs.totalCost*(1+profitPct/100);
+  el.innerHTML=`
+  <div class="result-card">
+    <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px">📊 Resumo de Custos</div>
+    <div class="breakdown">
+      <div class="bk-row"><span>🧵 Filamento (${costs.weight}g)</span><b>${brl(costs.filamentCost)}</b></div>
+      <div class="bk-row"><span>🫧 Plástico bolha (${costs.bubbles}×)</span><b>${brl(costs.bubbleCost)}</b></div>
+      <div class="bk-row"><span>📦 Embalagem</span><b>${brl(costs.pkgCost)}</b></div>
+      <div class="bk-row"><span>⚡ Luz (${costs.printH}h)</span><b>${brl(costs.lightCost)}</b></div>
+      <div class="bk-row"><span>🔧 Manutenção</span><b>${brl(costs.maintCost)}</b></div>
+      <div class="bk-row bk-total"><span>Custo Total</span><b>${brl(costs.totalCost)}</b></div>
+    </div>
+    ${manualPrice===null?`<div class="formula-tip">💡 <b>Fórmula:</b> Você quer receber ${brl(wantedNet)} líquido (custo + ${profitPct}% lucro)<br>Shopee desconta ${cfg.shopeePct}% do preço + R$ ${cfg.shopeeFixed} fixo<br>∴ Preço = (${brl(wantedNet)} + ${brl(cfg.shopeeFixed)}) ÷ ${(1-cfg.shopeePct/100).toFixed(2)} = <b>${brl(costs.suggestedPrice)}</b></div>`:''}
+    <div class="rr"><span class="rl">Taxa Shopee (${cfg.shopeePct}% × ${brl(costs.suggestedPrice)} + R$ ${cfg.shopeeFixed})</span><span class="rv" style="color:var(--orange)">${brl(costs.shopeeFee)}</span></div>
+    <div class="rr"><span class="rl">Você recebe líquido</span><span class="rv" style="color:var(--cyan)">${brl(costs.netReceived)}</span></div>
+    <div class="rr"><span class="rl">Lucro real</span><span class="rv" style="color:${pc}">${brl(costs.realProfit)} (${pct(costs.realProfitPct)})</span></div>
+    <div class="price-box">
+      <div class="pb-lbl">${manualPrice!==null?'PREÇO MANUAL':'PREÇO SUGERIDO SHOPEE'}</div>
+      <div class="pb-val">${brl(costs.suggestedPrice)}</div>
+      <div class="pb-sub">${manualPrice!==null?`Lucro real: ${pct(costs.realProfitPct)}`:`Garante ${profitPct}% de lucro depois da Shopee`}</div>
+    </div>
+  </div>`;
+}
+
+// ── PACKAGING (sem perder form) ────────────────────────────────────────────
+function setPkg(v){
+  const w=document.getElementById('c-weight')?.value||'';
+  const t=document.getElementById('c-time')?.value||'';
+  const b=document.getElementById('c-bubbles')?.value||'1';
+  formState.name=document.getElementById('c-name')?.value||formState.name;
+  formState.desc=document.getElementById('c-desc')?.value||formState.desc;
+  curPkg=v;renderCalc();
+  if(document.getElementById('c-weight'))document.getElementById('c-weight').value=w;
+  if(document.getElementById('c-time'))document.getElementById('c-time').value=t;
+  if(document.getElementById('c-bubbles'))document.getElementById('c-bubbles').value=b;
+  updateResult();
+}
+function setProfitSlider(v){
+  profitPct=parseInt(v);manualPrice=null;
+  if(document.getElementById('c-manual'))document.getElementById('c-manual').value='';
+  document.getElementById('profit-badge').textContent=profitPct+'%';
+  updateResult();
+}
+function setManualPrice(v){manualPrice=(v&&parseFloat(v)>0)?parseFloat(v):null;updateResult();}
+
+// ── FOTO ───────────────────────────────────────────────────────────────────
+function onPhotoSelected(e){
+  const file=e.target.files[0];if(!file)return;
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    const img=new Image();
+    img.onload=()=>{
+      const MAX=500,canvas=document.createElement('canvas');
+      let w=img.width,h=img.height;
+      if(w>MAX){h=Math.round(h*MAX/w);w=MAX;}
+      if(h>MAX){w=Math.round(w*MAX/h);h=MAX;}
+      canvas.width=w;canvas.height=h;
+      canvas.getContext('2d').drawImage(img,0,0,w,h);
+      photoData=canvas.toDataURL('image/jpeg',.7);
+      const prev=document.getElementById('photo-prev');
+      if(prev)prev.innerHTML=`<img src="${photoData}">`;
+    };
+    img.src=ev.target.result;
+  };
+  reader.readAsDataURL(file);e.target.value='';
+}
+
+// ── IA ─────────────────────────────────────────────────────────────────────
+async function runAI(){
+  const name=document.getElementById('c-name')?.value.trim();
+  if(!name){alert('Informe o nome do produto primeiro!');return;}
+  const costs=calcCosts();
+  aiResult={loading:true,title:'',desc:'',prices:null};
+  const w=document.getElementById('c-weight')?.value||'';
+  const t=document.getElementById('c-time')?.value||'';
+  const b=document.getElementById('c-bubbles')?.value||'1';
+  formState.name=document.getElementById('c-name')?.value||formState.name;
+  formState.desc=document.getElementById('c-desc')?.value||formState.desc;
+  renderCalc();
+  if(document.getElementById('c-weight'))document.getElementById('c-weight').value=w;
+  if(document.getElementById('c-time'))document.getElementById('c-time').value=t;
+  if(document.getElementById('c-bubbles'))document.getElementById('c-bubbles').value=b;
+  updateResult();
+  try{
+    const resp=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        model:'claude-sonnet-4-20250514',max_tokens:800,
+        messages:[{role:'user',content:`Especialista Shopee Brasil, impressão 3D.
+Produto: "${name}" | Custo: R$ ${costs.totalCost.toFixed(2)} | Preço: R$ ${costs.suggestedPrice.toFixed(2)}
+Responda SOMENTE JSON:
+{"title":"título até 100 chars com palavras-chave","desc":"descrição 3-4 linhas para converter vendas","prices":{"min":"R$ X,XX","med":"R$ X,XX","max":"R$ X,XX"}}`}]
+      })
+    });
+    const data=await resp.json();
+    const txt=data.content?.[0]?.text||'{}';
+    const parsed=JSON.parse(txt.replace(/```json|```/g,'').trim());
+    aiResult={loading:false,title:parsed.title||'',desc:parsed.desc||'',prices:parsed.prices||null};
+  }catch(e){
+    aiResult={loading:false,title:'',desc:'',prices:null};
+  }
+  const w2=document.getElementById('c-weight')?.value||w;
+  const t2=document.getElementById('c-time')?.value||t;
+  const b2=document.getElementById('c-bubbles')?.value||b;
+  renderCalc();
+  if(document.getElementById('c-weight'))document.getElementById('c-weight').value=w2;
+  if(document.getElementById('c-time'))document.getElementById('c-time').value=t2;
+  if(document.getElementById('c-bubbles'))document.getElementById('c-bubbles').value=b2;
+  updateResult();
+}
+function applyAI(){
+  if(aiResult.title)formState.name=aiResult.title;
+  if(aiResult.desc)formState.desc=aiResult.desc;
+  const w=document.getElementById('c-weight')?.value||'';
+  const t=document.getElementById('c-time')?.value||'';
+  const b=document.getElementById('c-bubbles')?.value||'1';
+  renderCalc();
+  if(document.getElementById('c-weight'))document.getElementById('c-weight').value=w;
+  if(document.getElementById('c-time'))document.getElementById('c-time').value=t;
+  if(document.getElementById('c-bubbles'))document.getElementById('c-bubbles').value=b;
+  updateResult();
+}
+
+// ── SAVE ───────────────────────────────────────────────────────────────────
+async function saveProduct(){
+  const name=(document.getElementById('c-name')?.value||formState.name).trim();
+  if(!name){alert('Informe o nome!');return;}
+  const costs=calcCosts();
+  const p={
+    id:uid(),name,
+    desc:(document.getElementById('c-desc')?.value||formState.desc).trim(),
+    photo:photoData||null,
+    totalCost:costs.totalCost,price:costs.suggestedPrice,
+    shopeeFee:costs.shopeeFee,netReceived:costs.netReceived,
+    realProfit:costs.realProfit,profitPct:costs.realProfitPct,
+    breakdown:{filament:costs.filamentCost,bubble:costs.bubbleCost,
+      pkg:costs.pkgCost,light:costs.lightCost,maint:costs.maintCost},
+    weight:costs.weight,printH:costs.printH,pkg:curPkg,savedTs:Date.now(),
+    savedAt:new Date().toLocaleDateString('pt-BR'),
+  };
+  await pushProduct(p);
+  photoData=null;aiResult={title:'',desc:'',prices:null};
+  formState={name:'',desc:''};
+  swTab('produtos');
+}
+
+// ── RENDER PRODUCTS ────────────────────────────────────────────────────────
+function renderProducts(){
+  // Filtrar
+  let products=[...localProducts];
+  if(searchQ.trim()){
+    const q=searchQ.toLowerCase();
+    products=products.filter(p=>(p.name||'').toLowerCase().includes(q)||(p.desc||'').toLowerCase().includes(q));
+  }
+  // Ordenar
+  if(sortBy==='newest') products.sort((a,b)=>(b.savedTs||0)-(a.savedTs||0));
+  else if(sortBy==='oldest') products.sort((a,b)=>(a.savedTs||0)-(b.savedTs||0));
+  else if(sortBy==='price_asc') products.sort((a,b)=>a.price-b.price);
+  else if(sortBy==='price_desc') products.sort((a,b)=>b.price-a.price);
+  else if(sortBy==='cost_asc') products.sort((a,b)=>a.totalCost-b.totalCost);
+  else if(sortBy==='name') products.sort((a,b)=>a.name.localeCompare(b.name,'pt-BR'));
+
+  const toolbar=`
+  <div class="prod-toolbar">
+    <input class="search-box" type="text" placeholder="🔍 Buscar produto..." value="${searchQ}"
+      oninput="searchQ=this.value;renderProducts()" autocomplete="off" autocorrect="off">
+    <select class="sort-sel" onchange="sortBy=this.value;renderProducts()">
+      <option value="newest" ${sortBy==='newest'?'selected':''}>Mais recente</option>
+      <option value="oldest" ${sortBy==='oldest'?'selected':''}>Mais antigo</option>
+      <option value="name" ${sortBy==='name'?'selected':''}>A → Z</option>
+      <option value="price_desc" ${sortBy==='price_desc'?'selected':''}>Maior preço</option>
+      <option value="price_asc" ${sortBy==='price_asc'?'selected':''}>Menor preço</option>
+      <option value="cost_asc" ${sortBy==='cost_asc'?'selected':''}>Menor custo</option>
+    </select>
+    <div class="view-toggle">
+      <button class="vbtn ${viewMode==='grid'?'on':''}" onclick="viewMode='grid';renderProducts()" title="Grade">⊞</button>
+      <button class="vbtn ${viewMode==='list'?'on':''}" onclick="viewMode='list';renderProducts()" title="Lista">☰</button>
+    </div>
+  </div>`;
+
+  if(!localProducts.length){
+    document.getElementById('content').innerHTML=`<div class="empty"><div class="ei">📦</div><div>Nenhum produto ainda.<br>Calcule e salve na aba Calcular!</div></div>`;
+    return;
+  }
+
+  if(!products.length){
+    document.getElementById('content').innerHTML=toolbar+`<div class="empty"><div class="ei">🔍</div><div>Nenhum produto encontrado<br>para "<b>${searchQ}</b>"</div></div>`;
+    return;
+  }
+
+  const cards=products.map(p=>`
+  <div class="prod-card" id="p-${p.id}">
+    ${p.photo?`<img class="prod-img" src="${p.photo}">`:`<div class="prod-placeholder">🖨️</div>`}
+    <div class="prod-body">
+      <div class="prod-name">${esc(p.name)}</div>
+      ${p.desc?`<div class="prod-desc">${esc(p.desc.slice(0,90))}${p.desc.length>90?'...':''}</div>`:''}
+      <div class="chips">
+        <span class="chip c-cost">💰 ${brl(p.totalCost)}</span>
+        <span class="chip c-price">🏷️ ${brl(p.price)}</span>
+        <span class="chip c-pct">📈 ${pct(p.profitPct)}</span>
+        <span class="chip c-shopee">🛍️ ${brl(p.shopeeFee)}</span>
+      </div>
+      <div class="prod-btns">
+        <button class="pb-view" onclick="viewProduct('${p.id}')">👁️ Ver</button>
+        <button class="pb-share" onclick="shareProduct('${p.id}')">📤</button>
+        <button class="pb-del" onclick="deleteProduct('${p.id}')">🗑️</button>
+      </div>
+    </div>
+  </div>`).join('');
+
+  const wrapClass = viewMode==='grid' ? 'prod-grid' : 'prod-list';
+  document.getElementById('content').innerHTML = toolbar + `<div class="${wrapClass}">${cards}</div>`;
+}
+
+function viewProduct(id){
+  const p=localProducts.find(x=>x.id===id);if(!p)return;
+  openSht('📦 '+esc(p.name),`
+    ${p.photo?`<img src="${p.photo}" style="width:100%;border-radius:12px;margin-bottom:12px;object-fit:cover;max-height:180px">`:''}
+    ${p.desc?`<p style="font-size:13px;color:var(--muted);line-height:1.5;margin-bottom:12px">${esc(p.desc)}</p>`:''}
+    <div class="breakdown">
+      <div class="bk-row"><span>🧵 Filamento</span><b>${brl(p.breakdown.filament)}</b></div>
+      <div class="bk-row"><span>🫧 Plástico bolha</span><b>${brl(p.breakdown.bubble)}</b></div>
+      <div class="bk-row"><span>📦 Embalagem</span><b>${brl(p.breakdown.pkg)}</b></div>
+      <div class="bk-row"><span>⚡ Luz</span><b>${brl(p.breakdown.light)}</b></div>
+      <div class="bk-row"><span>🔧 Manutenção</span><b>${brl(p.breakdown.maint)}</b></div>
+      <div class="bk-row bk-total"><span>Custo Total</span><b>${brl(p.totalCost)}</b></div>
+    </div>
+    <div class="rr"><span class="rl">Taxa Shopee</span><span class="rv" style="color:var(--orange)">${brl(p.shopeeFee)}</span></div>
+    <div class="rr"><span class="rl">Você recebe líquido</span><span class="rv" style="color:var(--cyan)">${brl(p.netReceived)}</span></div>
+    <div class="rr"><span class="rl">Lucro real</span><span class="rv" style="color:var(--green)">${brl(p.realProfit)} (${pct(p.profitPct)})</span></div>
+    <div class="price-box" style="margin:12px 0"><div class="pb-lbl">PREÇO SHOPEE</div><div class="pb-val">${brl(p.price)}</div></div>
+    <button class="btn btn-export" onclick="closeSht();shareProduct('${p.id}')">📤 Exportar HTML</button>
+    <button class="btn btn-danger" onclick="closeSht();deleteProduct('${p.id}')">🗑️ Excluir de todos os dispositivos</button>
+    <button class="btn btn-secondary" onclick="closeSht()">Fechar</button>
+  `);
+}
+
+// ── EXPORT HTML ────────────────────────────────────────────────────────────
+function buildProductHtml(p){
+  return`<!DOCTYPE html><html lang="pt-BR"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>JM 3D — ${p.name}</title>
+<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,Arial,sans-serif;background:#f0f2f5}
+.w{max-width:480px;margin:0 auto;padding:16px}
+.hdr{background:linear-gradient(135deg,#00CFFF,#7B2FFF,#FF3B8B,#FF8C00);border-radius:16px;padding:20px;color:#fff;text-align:center;margin-bottom:16px}
+.hdr h1{font-size:24px;font-weight:900}.hdr p{font-size:12px;opacity:.8;margin-top:3px}
+img{width:100%;border-radius:14px;object-fit:cover;max-height:240px;margin-bottom:14px;display:block}
+h2{font-size:18px;font-weight:900;margin-bottom:5px}
+.desc{font-size:13px;color:#555;line-height:1.6;margin-bottom:14px}
+.card{background:#fff;border-radius:14px;padding:14px;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,.06)}
+.card h3{font-size:12px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px}
+.row{display:flex;justify-content:space-between;font-size:13px;padding:5px 0;border-bottom:1px solid #f0f0f0}
+.row:last-child{border:none}.l{color:#666}.v{font-weight:700}
+.tot{font-size:14px;font-weight:800;color:#FF4444!important}
+.pbox{background:linear-gradient(135deg,#00CFFF,#7B2FFF);border-radius:14px;padding:18px;text-align:center;color:#fff;margin:12px 0}
+.pbox .pl{font-size:11px;opacity:.8;margin-bottom:5px;font-weight:700}
+.pbox .pv{font-size:32px;font-weight:900}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.chip{padding:4px 10px;border-radius:20px;font-size:11px;font-weight:700}
+.c1{background:#fff0f0;color:#FF4444}.c2{background:#f0fff8;color:#00B894}
+.c3{background:#f0f4ff;color:#7B2FFF}.c4{background:#fff8f0;color:#FF8C00}
+footer{text-align:center;font-size:11px;color:#aaa;padding:14px 0}
+</style></head><body><div class="w">
+<div class="hdr"><h1>JM 3D</h1><p>Orçamento • ${p.savedAt}</p></div>
+${p.photo?`<img src="${p.photo}">`:''}
+<h2>${p.name}</h2>
+${p.desc?`<div class="desc">${p.desc}</div>`:''}
+<div class="chips">
+<span class="chip c1">💰 Custo: ${brl(p.totalCost)}</span>
+<span class="chip c2">🏷️ Preço: ${brl(p.price)}</span>
+<span class="chip c3">📈 ${pct(p.profitPct)}</span>
+<span class="chip c4">🛍️ Shopee: ${brl(p.shopeeFee)}</span>
+</div>
+<div class="card"><h3>Custos</h3>
+<div class="row"><span class="l">🧵 Filamento</span><span class="v">${brl(p.breakdown.filament)}</span></div>
+<div class="row"><span class="l">🫧 Plástico bolha</span><span class="v">${brl(p.breakdown.bubble)}</span></div>
+<div class="row"><span class="l">📦 Embalagem</span><span class="v">${brl(p.breakdown.pkg)}</span></div>
+<div class="row"><span class="l">⚡ Luz</span><span class="v">${brl(p.breakdown.light)}</span></div>
+<div class="row"><span class="l">🔧 Manutenção</span><span class="v">${brl(p.breakdown.maint)}</span></div>
+<div class="row tot"><span class="l">TOTAL</span><span class="v">${brl(p.totalCost)}</span></div>
+</div>
+<div class="pbox"><div class="pl">PREÇO DE VENDA SHOPEE</div><div class="pv">${brl(p.price)}</div>
+<div style="font-size:11px;opacity:.7;margin-top:4px">Lucro real: ${brl(p.realProfit)} (${pct(p.profitPct)}) • Shopee: ${brl(p.shopeeFee)}</div>
+</div>
+<footer>JM 3D Impressão 3D</footer>
+</div></body></html>`;
+}
+
+function shareProduct(id){
+  const p=localProducts.find(x=>x.id===id);if(!p)return;
+  doShare(buildProductHtml(p),'jm3d_'+p.name.replace(/\s+/g,'_').toLowerCase()+'.html');
+}
+function exportCurrentProduct(){
+  const costs=calcCosts();
+  const name=(document.getElementById('c-name')?.value||formState.name).trim()||'produto';
+  const p={name,desc:(document.getElementById('c-desc')?.value||'').trim(),photo:photoData,
+    totalCost:costs.totalCost,price:costs.suggestedPrice,shopeeFee:costs.shopeeFee,
+    netReceived:costs.netReceived,realProfit:costs.realProfit,profitPct:costs.realProfitPct,
+    breakdown:{filament:costs.filamentCost,bubble:costs.bubbleCost,pkg:costs.pkgCost,light:costs.lightCost,maint:costs.maintCost},
+    printH:costs.printH,savedAt:new Date().toLocaleDateString('pt-BR')};
+  doShare(buildProductHtml(p),'jm3d_orcamento.html');
+}
+
+// ── COMPARTILHAR LISTA + CALCULADORA ──────────────────────────────────────
+function openShareList(){
+  openSht('📤 Compartilhar Catálogo',`
+    <p style="font-size:13px;color:var(--muted);line-height:1.5;margin-bottom:14px">
+      Gera um HTML com todos os produtos e a calculadora completa.<br>
+      Quem receber pode <b>calcular preços</b> e os dados ficam todos em um arquivo.
+    </p>
+    <div style="background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--rs);padding:11px;margin-bottom:14px;font-size:13px">
+      📦 <b>${localProducts.length}</b> produto${localProducts.length!==1?'s':''} incluídos
+    </div>
+    <button class="btn btn-export" onclick="closeSht();buildAndShareList()">📤 Gerar HTML Completo</button>
+    <button class="btn btn-secondary" onclick="closeSht()">Cancelar</button>
+  `);
+}
+
+function buildAndShareList(){
+  const cfg=getLocalConfig();
+  const cardsHtml=localProducts.map(p=>`
+<div style="background:#fff;border-radius:14px;padding:14px;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,.06)">
+${p.photo?`<img src="${p.photo}" style="width:100%;height:160px;object-fit:cover;border-radius:10px;margin-bottom:10px">`:''}
+<div style="font-size:16px;font-weight:800;margin-bottom:4px">${p.name}</div>
+${p.desc?`<div style="font-size:12px;color:#666;line-height:1.5;margin-bottom:8px">${p.desc}</div>`:''}
+<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px">
+<span style="background:#fff0f0;color:#FF4444;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:700">💰 ${brl(p.totalCost)}</span>
+<span style="background:#f0fff8;color:#00B894;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:700">🏷️ ${brl(p.price)}</span>
+<span style="background:#f0f4ff;color:#7B2FFF;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:700">📈 ${pct(p.profitPct)}</span>
+</div>
+<div style="font-size:11px;color:#aaa">${p.savedAt}</div>
+</div>`).join('');
+
+  const html=`<!DOCTYPE html><html lang="pt-BR"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>JM 3D — Catálogo</title>
+<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,Arial,sans-serif;background:#f0f2f5}
+.w{max-width:500px;margin:0 auto;padding:16px}
+.hdr{background:linear-gradient(135deg,#00CFFF,#7B2FFF,#FF3B8B,#FF8C00);border-radius:16px;padding:22px;color:#fff;text-align:center;margin-bottom:16px}
+.hdr h1{font-size:26px;font-weight:900}.hdr p{font-size:12px;opacity:.8;margin-top:3px}
+.calc{background:#fff;border-radius:14px;padding:16px;margin-bottom:16px;box-shadow:0 2px 8px rgba(0,0,0,.06)}
+.calc h2{font-size:15px;font-weight:800;margin-bottom:12px;color:#333}
+.fi{width:100%;border:1.5px solid #e0e0e0;border-radius:8px;padding:9px 12px;font-size:14px;outline:none;margin-bottom:10px;font-family:inherit}
+.fi:focus{border-color:#7B2FFF}
+.fi-row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.fl{font-size:10px;font-weight:700;color:#888;text-transform:uppercase;margin-bottom:4px;display:block;letter-spacing:.5px}
+.pkgs{display:flex;gap:6px;margin-bottom:10px}
+.pkg{flex:1;padding:8px 3px;border:1.5px solid #e0e0e0;border-radius:8px;text-align:center;cursor:pointer;font-size:11px;font-weight:700;color:#888;background:#fff}
+.pkg.on{border-color:#00CFFF;color:#00CFFF;background:#f0feff}
+.rbox{background:linear-gradient(135deg,#00CFFF,#7B2FFF);border-radius:12px;padding:14px;text-align:center;color:#fff;margin-top:8px}
+.rbox .rv{font-size:28px;font-weight:900}.rbox .rs{font-size:11px;opacity:.8;margin-top:3px}
+.sec-title{font-size:15px;font-weight:800;margin-bottom:12px;color:#333}
+footer{text-align:center;font-size:11px;color:#aaa;padding:14px 0}
+</style>
+<script>
+var cfg=${JSON.stringify(cfg)};var cpkg='small';
+function spkg(v){cpkg=v;document.querySelectorAll('.pkg').forEach((el,i)=>el.classList.toggle('on',['small','medium','large'][i]===v));calc();}
+function calc(){
+var w=parseFloat(document.getElementById('xw').value)||0;
+var t=parseFloat(document.getElementById('xt').value)||0;
+var b=parseInt(document.getElementById('xb').value)||1;
+var pk={small:1,medium:2,large:4}[cpkg]||1;
+var fil=w*(cfg.filamentKgPrice/1000),bub=b*cfg.bubbleUnit,lig=(cfg.lightMonthly/30/24)*t;
+var tot=fil+bub+pk+lig+cfg.maintenance;
+var pct=parseInt(document.getElementById('xp').value)||250;
+var net=tot*(1+pct/100),price=(net+cfg.shopeeFixed)/(1-cfg.shopeePct/100);
+var fee=price*(cfg.shopeePct/100)+cfg.shopeeFixed,rec=price-fee,rp=rec-tot;
+var f=v=>'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+document.getElementById('xr').innerHTML='<div class="rv">'+f(price)+'</div><div class="rs">Custo: '+f(tot)+' • Você recebe: '+f(rec)+' • Lucro: '+f(rp)+' ('+((rp/tot)*100).toFixed(0)+'%) • Shopee: '+f(fee)+'</div>';
+}
+<\/script>
+</head><body><div class="w">
+<div class="hdr"><h1>JM 3D</h1><p>Catálogo • ${new Date().toLocaleDateString('pt-BR')}</p></div>
+<div class="calc"><h2>🧮 Calculadora de Preços</h2>
+<div class="fi-row">
+<div><label class="fl">Filamento (g)</label><input class="fi" type="number" id="xw" placeholder="45" oninput="calc()"></div>
+<div><label class="fl">Tempo (h)</label><input class="fi" type="number" id="xt" placeholder="3.5" oninput="calc()"></div>
+</div>
+<label class="fl">Plástico bolha (un)</label><input class="fi" type="number" id="xb" value="1" oninput="calc()">
+<label class="fl">Embalagem</label>
+<div class="pkgs">
+<div class="pkg on" onclick="spkg('small')">📦 Pequena<br>R$ 1,00</div>
+<div class="pkg" onclick="spkg('medium')">📦 Média<br>R$ 2,00</div>
+<div class="pkg" onclick="spkg('large')">📦 Grande<br>R$ 4,00</div>
+</div>
+<label class="fl">Lucro desejado (%)</label><input class="fi" type="number" id="xp" value="250" oninput="calc()">
+<div id="xr" class="rbox"><div class="rv">R$ 0,00</div><div class="rs">Preencha os campos</div></div>
+</div>
+<div class="sec-title">📦 Produtos (${localProducts.length})</div>
+${cardsHtml}
+<footer>JM 3D Impressão 3D</footer>
+</div></body></html>`;
+  doShare(html,'jm3d_catalogo.html');
+}
+
+function doShare(html,fname){
+  if(window.Bridge){Bridge.shareHtml(html,fname);}
+  else{
+    const blob=new Blob([html],{type:'text/html'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;a.download=fname;
+    document.body.appendChild(a);a.click();
+    document.body.removeChild(a);URL.revokeObjectURL(url);
+  }
+}
+
+// ── CONFIG ─────────────────────────────────────────────────────────────────
+function openConfig(){
+  const cfg=getLocalConfig();
+  openSht('⚙️ Configurações',`
+    <div class="cfg-row">
+      <div><div class="cfg-lbl">Filamento (R$/kg)</div><div class="cfg-sub">Custo de 1kg</div></div>
+      <input class="cfg-val" type="number" id="cf1" value="${cfg.filamentKgPrice}" inputmode="decimal">
+    </div>
+    <div class="cfg-row">
+      <div><div class="cfg-lbl">Plástico bolha (R$/un)</div></div>
+      <input class="cfg-val" type="number" id="cf2" value="${cfg.bubbleUnit}" inputmode="decimal">
+    </div>
+    <div class="cfg-row">
+      <div><div class="cfg-lbl">Luz (R$/mês)</div></div>
+      <input class="cfg-val" type="number" id="cf3" value="${cfg.lightMonthly}" inputmode="decimal">
+    </div>
+    <div class="cfg-row">
+      <div><div class="cfg-lbl">Manutenção (R$/item)</div></div>
+      <input class="cfg-val" type="number" id="cf4" value="${cfg.maintenance}" inputmode="decimal">
+    </div>
+    <div class="cfg-row">
+      <div><div class="cfg-lbl">Shopee comissão (%)</div></div>
+      <input class="cfg-val" type="number" id="cf5" value="${cfg.shopeePct}" inputmode="decimal">
+    </div>
+    <div class="cfg-row">
+      <div><div class="cfg-lbl">Shopee taxa fixa (R$)</div></div>
+      <input class="cfg-val" type="number" id="cf6" value="${cfg.shopeeFixed}" inputmode="decimal">
+    </div>
+    <div class="cfg-row">
+      <div><div class="cfg-lbl">Lucro padrão (%)</div></div>
+      <input class="cfg-val" type="number" id="cf7" value="${cfg.defaultProfit}" inputmode="numeric">
+    </div>
+    <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin:14px 0 8px">📦 Preços das Embalagens</div>
+    <div class="cfg-row">
+      <div><div class="cfg-lbl">Pequena (R$)</div><div class="cfg-sub">Ex: sacola pequena</div></div>
+      <input class="cfg-val" type="number" id="cf-pks" value="${cfg.pkgSmall??1}" inputmode="decimal" step="0.5">
+    </div>
+    <div class="cfg-row">
+      <div><div class="cfg-lbl">Média (R$)</div><div class="cfg-sub">Ex: caixa média</div></div>
+      <input class="cfg-val" type="number" id="cf-pkm" value="${cfg.pkgMedium??2}" inputmode="decimal" step="0.5">
+    </div>
+    <div class="cfg-row">
+      <div><div class="cfg-lbl">Grande (R$)</div><div class="cfg-sub">Ex: caixa grande</div></div>
+      <input class="cfg-val" type="number" id="cf-pkl" value="${cfg.pkgLarge??4}" inputmode="decimal" step="0.5">
+    </div>
+    <div class="cfg-row">
+      <div><div class="cfg-lbl">XL (R$)</div><div class="cfg-sub">Ex: caixa extra grande</div></div>
+      <input class="cfg-val" type="number" id="cf-pkxl" value="${cfg.pkgXL??6}" inputmode="decimal" step="0.5">
+    </div>
+    <div class="cfg-row">
+      <div><div class="cfg-lbl">✏️ Especial (R$)</div><div class="cfg-sub">Valor personalizado (0 = ocultar)</div></div>
+      <input class="cfg-val" type="number" id="cf-pkc" value="${cfg.pkgCustom??0}" inputmode="decimal" step="0.5">
+    </div>
+    <button class="btn btn-primary" style="margin-top:14px" onclick="saveCfgUI()">💾 Salvar</button>
+    <hr style="border:none;border-top:1px solid var(--bdr);margin:16px 0">
+    <div style="font-size:12px;color:var(--muted);margin-bottom:10px">⚙️ Firebase conectado. Para trocar:</div>
+    <button class="btn btn-danger" onclick="if(confirm('Desconectar Firebase?')){localStorage.removeItem('jm3d_firebase');location.reload()}">🔥 Reconfigurar Firebase</button>
+    <button class="btn btn-secondary" onclick="closeSht()">Cancelar</button>
+  `);
+}
+async function saveCfgUI(){
+  const cfg={
+    filamentKgPrice:parseFloat(document.getElementById('cf1').value)||100,
+    bubbleUnit:parseFloat(document.getElementById('cf2').value)||0.5,
+    lightMonthly:parseFloat(document.getElementById('cf3').value)||130,
+    maintenance:parseFloat(document.getElementById('cf4').value)||1.5,
+    shopeePct:parseFloat(document.getElementById('cf5').value)||18,
+    shopeeFixed:parseFloat(document.getElementById('cf6').value)||4.42,
+    defaultProfit:parseInt(document.getElementById('cf7').value)||250,
+    pkgSmall:parseFloat(document.getElementById('cf-pks')?.value)||1,
+    pkgMedium:parseFloat(document.getElementById('cf-pkm')?.value)||2,
+    pkgLarge:parseFloat(document.getElementById('cf-pkl')?.value)||4,
+    pkgXL:parseFloat(document.getElementById('cf-pkxl')?.value)||6,
+    pkgCustom:parseFloat(document.getElementById('cf-pkc')?.value)||0,
+  };
+  saveLocalConfig(cfg);
+  await syncConfig(cfg); // Sincroniza config para todos os dispositivos
+  profitPct=cfg.defaultProfit;
+  closeSht();
+  if(curTab==='calc')updateResult();
+}
+
+function openSht(title,body){
+  document.getElementById('sht-ttl').textContent=title;
+  document.getElementById('sht-body').innerHTML=body;
+  document.getElementById('ovl').classList.add('on');
+  document.getElementById('sht').classList.add('on');
+}
+function closeSht(){
+  document.getElementById('ovl').classList.remove('on');
+  document.getElementById('sht').classList.remove('on');
+}
+
+
+// ── PIN AUTH ──────────────────────────────────────────────────────────────
+const CORRECT_PIN = '8486';
+let pinBuf = '';
+
+function pinKey(d) {
+  if (pinBuf.length >= 4) return;
+  pinBuf += d;
+  updatePinDots();
+  if (pinBuf.length === 4) setTimeout(checkPin, 150);
+}
+function pinDel() { pinBuf = pinBuf.slice(0,-1); updatePinDots(); }
+function pinClear() { pinBuf = ''; updatePinDots(); }
+
+function updatePinDots() {
+  [0,1,2,3].forEach(i => {
+    const dot = document.getElementById('pd'+i);
+    if(!dot) return;
+    dot.classList.toggle('filled', i < pinBuf.length);
+    dot.classList.remove('err');
+  });
+  const errEl = document.getElementById('pin-error');
+  if(errEl) errEl.textContent = '';
+}
+
+function checkPin() {
+  if (pinBuf === CORRECT_PIN) {
+    sessionStorage.setItem('jm3d_auth', Date.now() + 8*60*60*1000);
+    const ps = document.getElementById('pin-screen');
+    if(ps) ps.style.display = 'none';
+  } else {
+    [0,1,2,3].forEach(i => {
+      const dot = document.getElementById('pd'+i);
+      if(dot) dot.classList.add('err');
+    });
+    const errEl = document.getElementById('pin-error');
+    if(errEl) errEl.textContent = 'PIN incorreto. Tente novamente.';
+    setTimeout(() => { pinBuf = ''; updatePinDots(); }, 700);
+  }
+}
+
+// Verificar sessão ao carregar (válida por 8h)
+(function checkPinSession() {
+  const exp = parseInt(sessionStorage.getItem('jm3d_auth')||'0');
+  if (Date.now() < exp) {
+    const ps = document.getElementById('pin-screen');
+    if(ps) ps.style.display = 'none';
+  }
+})();
+
+// ── INIT ───────────────────────────────────────────────────────────────────
+profitPct=getLocalConfig().defaultProfit;
+if(initFirebase()){
+  startListeners();
+}
+renderContent();
+</script>
+</body></html>
