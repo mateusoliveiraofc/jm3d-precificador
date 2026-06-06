@@ -1,4 +1,4 @@
-const CACHE_NAME = 'jm3d-v2';
+const CACHE_NAME = 'jm3d-v3';
 const ASSETS = [
   './',
   './index.html',

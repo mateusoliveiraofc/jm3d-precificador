@@ -1324,15 +1324,19 @@ function refTopSummary(orders,s,available,margin){
     <div class="ref-summary-block">
       <div class="ref-label">Lucro livre</div>
       <div class="ref-money green">${brl(s.profit)}</div>
-      ${refSparkline(profitSeries,'#00C2FF',true)}
-      <div class="spark-caption"><i style="background:#00C2FF"></i>Evolucao do lucro</div>
+      <div class="ref-summary-chart">
+        ${refSparkline(profitSeries,'#00C2FF',true)}
+        <div class="spark-caption"><i style="background:#00C2FF"></i>Evolucao do lucro</div>
+      </div>
       <div class="ref-summary-foot"><span>Caiu na sua conta:<b>${brl(s.net)}</b></span><span>Pedidos:<b>${orders.length}</b></span></div>
     </div>
     <div class="ref-summary-block available">
       <div class="ref-label">Dinheiro disponível</div>
       <div class="ref-money">${brl(available)}</div>
-      ${refSparkline(netSeries,'#3B82F6',true)}
-      <div class="spark-caption"><i style="background:#3B82F6"></i>Evolucao do recebido</div>
+      <div class="ref-summary-chart">
+        ${refSparkline(netSeries,'#3B82F6',true)}
+        <div class="spark-caption"><i style="background:#3B82F6"></i>Evolucao do recebido</div>
+      </div>
       <div class="ref-summary-foot"><span>Margem real:<b>${pct(margin)}</b></span><span>Produtos:<b>${s.qty}</b></span></div>
     </div>
   </section>`;
