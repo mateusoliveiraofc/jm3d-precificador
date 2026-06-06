@@ -659,10 +659,33 @@ function productUnitCost(product,meiUnit=0){
   const productionTotal=explicitUnitCost||base+loss;
   return {total:productionTotal+meiUnit,filament,energy,packaging,bubble,label,maintenance,waste:loss,postProcess,nozzleWear,extra,mei:meiUnit,other};
 }
+function emptyCostParts(){
+  return {total:0,filament:0,energy:0,packaging:0,bubble:0,label:0,maintenance:0,waste:0,postProcess:0,nozzleWear:0,extra:0,mei:0,other:0};
+}
+function productCostReadiness(product,meiUnit=0){
+  if(!product)return {ok:false,label:'Produto nao vinculado',unitCost:0,parts:emptyCostParts()};
+  const pc=product.costs||{};
+  const explicit=explicitProductUnitCost(product);
+  const weight=Number(pc.weightGrams ?? product.weight)||0;
+  const printH=Number(pc.printTimeHours ?? product.printH)||0;
+  const hasTechnicalCost=weight>0&&printH>0;
+  if(!explicit&&!hasTechnicalCost)return {ok:false,label:'Falta custo cadastrado',unitCost:0,parts:emptyCostParts()};
+  const parts=productUnitCost(product,meiUnit);
+  const unit=Number(parts.total)||0;
+  if(unit<=0)return {ok:false,label:'Custo incompleto',unitCost:0,parts:emptyCostParts()};
+  return {ok:true,label:'OK',unitCost:unit,parts};
+}
+function jmIsPlaceholderProduct(product){
+  const name=String(product?.name||product?.officialName||'');
+  if(!name)return true;
+  if(typeof isPlaceholderProductName==='function'&&isPlaceholderProductName(name))return true;
+  return /produto\s+(sem\s+nome|nao\s+vinculado|não\s+vinculado|desconhecido)|^porta\s+figurinha\s+\d+$/i.test(name);
+}
 function enrichOrder(o,meiUnit=0){
   o=Object.assign({},o,{marketplace:canonicalMarketplace(o.marketplace),orderId:o.orderId||o.id,productName:o.productName||o.importedProductName,sku:o.sku||o.importedSku,qty:o.qty||o.quantity||1,date:o.date||o.orderDate,paymentDate:o.paymentDate||o.paidDate});
   const match=findProductMatch(o);
-  const product=match.product;
+  let product=match.product;
+  if(jmIsPlaceholderProduct(product))product=null;
   const qty=Number(o.qty)||1;
   const fin=o.financial||{};
   const gross=Number(fin.grossAmount ?? o.gross)||0;
@@ -670,12 +693,14 @@ function enrichOrder(o,meiUnit=0){
   const discounts=Math.abs(Number(fin.marketplaceDiscount||0)+Number(fin.sellerDiscount||0))||Math.abs(Number(o.discounts)||0);
   const shipping=Number(fin.shippingCostToSeller ?? o.shipping)||0;
   const net=Number(fin.netReceived ?? o.net)||(gross-fees-discounts-Math.abs(shipping));
-  let c=productUnitCost(product,meiUnit);
-  if(!product)c={total:qty?net/qty:0,filament:0,energy:0,packaging:0,bubble:0,label:0,maintenance:0,waste:0,postProcess:0,nozzleWear:0,extra:0,mei:0,other:0};
-  const cost=c.total*qty;
-  const profit=product?net-cost:0;
-  const margin=product&&net>0?profit/net*100:0;
-  const health=!product?'sem_vinculo':profit<0?'prejuizo':margin<15?'margem_baixa':margin<25?'atenção':'healthy';
+  const costReady=productCostReadiness(product,meiUnit);
+  const canCalculate=!!product&&costReady.ok&&qty>0&&net>0;
+  const c=canCalculate?costReady.parts:emptyCostParts();
+  const cost=canCalculate?costReady.unitCost*qty:0;
+  const profit=canCalculate?net-cost:0;
+  const margin=canCalculate?profit/net*100:0;
+  const pendingReason=!product?'Produto nao vinculado':!costReady.ok?costReady.label:qty<=0?'Quantidade vendida ausente':net<=0?'Valor liquido recebido ausente':'';
+  const health=!canCalculate?'pendente_calculo':profit<0?'prejuizo':margin<15?'margem_baixa':margin<25?'atenção':'healthy';
   return Object.assign({},o,{
     id:o.id||makeImportId(o),
     orderDate:o.date||o.orderDate||'',
@@ -701,8 +726,12 @@ function enrichOrder(o,meiUnit=0){
       nozzleWear:c.nozzleWear,extraCost:c.extra,meiAllocated:c.mei,totalUnitCost:c.total,totalCost:cost
     },
     profit:{netProfit:profit,marginPercent:margin,status:health},
-    unitCost:c.total,totalCost:cost,net,profit,margin,
-    health:!product?'unlinked':profit<0?'bad':margin<15?'warn':'ok',
+    unitCost:canCalculate?costReady.unitCost:0,totalCost:cost,net,profit,margin,
+    health:!canCalculate?'pending':profit<0?'bad':margin<15?'warn':'ok',
+    calculationStatus:canCalculate?'ok':'pending',
+    calculationPendingReason:pendingReason,
+    costIncomplete:!!product&&!costReady.ok,
+    costStatusLabel:costReady.ok?'OK':costReady.label,
     costParts:c,
     updatedAt:new Date().toISOString()
   });
@@ -744,26 +773,32 @@ function isInsidePeriod(o){
 function summarizeOrders(orders){
   return orders.reduce((a,o)=>{
     const qty=Number(o.qty)||1;
+    const calculable=o.calculationStatus==='ok'||(!o.calculationStatus&&o.linkedProductId&&Number(o.net)>0&&Number(o.totalCost)>0);
     a.gross+=Number(o.gross)||Number(o.financial?.grossAmount)||0;a.net+=Number(o.net)||Number(o.financial?.netReceived)||0;
     a.fees+=Math.abs(Number(o.financial?.otherFees ?? o.fees)||0);
-    a.cost+=Number(o.totalCost)||0;a.profit+=Number(o.profit)||0;a.qty+=qty;
-    a.energy+=Number((o.productionCost?.energy ?? o.costParts?.energy)||0)*qty;
-    a.filament+=Number((o.productionCost?.filament ?? o.costParts?.filament)||0)*qty;
-    a.packaging+=(Number(o.costParts?.packaging||0)+Number(o.costParts?.bubble||0))*qty;
-    a.mei+=Number((o.productionCost?.meiAllocated ?? o.costParts?.mei)||0)*qty;
-    a.other+=Number(o.costParts?.other ?? (
-      Number(o.productionCost?.label||0)+Number(o.productionCost?.maintenance||0)+
-      Number(o.productionCost?.waste||0)+Number(o.productionCost?.postProcess||0)+
-      Number(o.productionCost?.nozzleWear||0)+Number(o.productionCost?.extraCost||0)
-    ))*qty;
-    if(marketplaceFilterValue(o.marketplace)==='shopee')a.shopeeNet+=Number(o.net)||0,a.shopeeProfit+=Number(o.profit)||0;
-    if(marketplaceFilterValue(o.marketplace)==='tiktokShop')a.tiktokNet+=Number(o.net)||0,a.tiktokProfit+=Number(o.profit)||0;
+    if(calculable){
+      a.cost+=Number(o.totalCost)||0;a.profit+=Number(o.profit)||0;
+      a.energy+=Number((o.productionCost?.energy ?? o.costParts?.energy)||0)*qty;
+      a.filament+=Number((o.productionCost?.filament ?? o.costParts?.filament)||0)*qty;
+      a.packaging+=(Number(o.costParts?.packaging||0)+Number(o.costParts?.bubble||0))*qty;
+      a.mei+=Number((o.productionCost?.meiAllocated ?? o.costParts?.mei)||0)*qty;
+      a.other+=Number(o.costParts?.other ?? (
+        Number(o.productionCost?.label||0)+Number(o.productionCost?.maintenance||0)+
+        Number(o.productionCost?.waste||0)+Number(o.productionCost?.postProcess||0)+
+        Number(o.productionCost?.nozzleWear||0)+Number(o.productionCost?.extraCost||0)
+      ))*qty;
+    }else{
+      a.pendingCalculation++;
+    }
+    a.qty+=qty;
+    if(marketplaceFilterValue(o.marketplace)==='shopee')a.shopeeNet+=Number(o.net)||0,a.shopeeProfit+=calculable?(Number(o.profit)||0):0;
+    if(marketplaceFilterValue(o.marketplace)==='tiktokShop')a.tiktokNet+=Number(o.net)||0,a.tiktokProfit+=calculable?(Number(o.profit)||0):0;
     if(o.store==='_kaline98')a.kalineNet+=Number(o.net)||0;
     if(o.store==='mateusoliver98')a.mateusNet+=Number(o.net)||0;
     if(!o.linkedProductId)a.unlinked++; if(o.health==='bad')a.bad++;
     if(!/pago|conclu/i.test(o.status||''))a.pending++;
     return a;
-  },{gross:0,net:0,fees:0,cost:0,profit:0,qty:0,energy:0,filament:0,packaging:0,mei:0,other:0,shopeeNet:0,tiktokNet:0,kalineNet:0,mateusNet:0,shopeeProfit:0,tiktokProfit:0,unlinked:0,bad:0,pending:0});
+  },{gross:0,net:0,fees:0,cost:0,profit:0,qty:0,energy:0,filament:0,packaging:0,mei:0,other:0,shopeeNet:0,tiktokNet:0,kalineNet:0,mateusNet:0,shopeeProfit:0,tiktokProfit:0,unlinked:0,bad:0,pending:0,pendingCalculation:0});
 }
 function renderMetric(label,value,cls=''){
   return `<div class="metric ${cls}"><div class="ml">${label}</div><div class="mv">${value}</div></div>`;
@@ -1069,7 +1104,7 @@ function erpHealth(margin,profit=1){
   return {cls:'good',label:'Excelente'};
 }
 function erpTopProduct(orders,mode='profit'){
-  return productPerformance(orders).sort((a,b)=>(b[mode]||0)-(a[mode]||0))[0]||null;
+  return productPerformance(orders).filter(p=>p.calculationStatus==='ok'&&p.qty>0).sort((a,b)=>(b[mode]||0)-(a[mode]||0))[0]||null;
 }
 function erpTopStore(orders){
   const map={};
@@ -1279,11 +1314,14 @@ function renderStoreComparison(orders){
 }
 function renderBusinessAlerts(orders){
   const products=productPerformance(orders);
-  const low=products.filter(p=>p.margin<20&&p.qty>0).slice(0,2);
-  const bad=products.filter(p=>p.profit<0).slice(0,2);
+  const calculable=products.filter(p=>p.calculationStatus==='ok'&&p.qty>0);
+  const low=calculable.filter(p=>p.margin<20).slice(0,2);
+  const bad=calculable.filter(p=>p.profit<0).slice(0,2);
+  const pending=products.filter(p=>p.qty>0&&p.calculationStatus!=='ok').slice(0,3);
   const unlinked=orders.filter(o=>!o.linkedProductId).slice(0,4);
   const cards=[
     ...unlinked.map(o=>({cls:'warn',title:'Produto sem vínculo',body:`${o.productName||o.importedProductName||o.orderId} - ${marketplaceLabel(o.marketplace)} - ${o.store||''}`,action:`<button onclick="openLinkProduct('${ea(o.id)}')">Vincular</button>`})),
+    ...pending.map(p=>({cls:'warn',title:'Pendência de cálculo',body:`${p.name}: ${p.calculationPendingReason||p.costStatusLabel||'Custo incompleto'}`,action:''})),
     ...bad.map(p=>({cls:'bad',title:'Produto em prejuízo',body:`${p.name}: ${brl(p.profit)}`,action:''})),
     ...low.map(p=>({cls:'warn',title:'Margem baixa',body:`${p.name}: margem ${pct(p.margin)}`,action:''}))
   ].slice(0,6);
@@ -1376,12 +1414,13 @@ function refUnlinkedCard(orders){
   </section>`;
 }
 function refHighlights(bestProduct,bestStore,bestMarketplace){
+  const hasProduct=bestProduct&&bestProduct.calculationStatus==='ok';
   return `<aside class="ref-card ref-highlights"><h3>Destaques do Período</h3>
     <div class="ref-feature">
       <div class="ref-feature-label">Produto campeão do período</div>
       ${refProductImage(bestProduct?.photo,bestProduct?.name||'Produto campeão')}
       <h4>${esc(bestProduct?.name||'Sem dados')}</h4>
-      <div class="ref-feature-grid"><span>${bestProduct?.qty||0} vendas</span><b>${brl(bestProduct?.profit||0)} lucro</b><span>margem ${pct(bestProduct?.margin||0)}</span><b>${brl(bestProduct?.qty?bestProduct.profit/bestProduct.qty:0)}</b></div>
+      <div class="ref-feature-grid"><span>${bestProduct?.qty||0} vendas</span><b>${hasProduct?brl(bestProduct.profit):'--'} lucro</b><span>margem ${hasProduct?pct(bestProduct.margin):'--'}</span><b>${hasProduct&&bestProduct.qty?brl(bestProduct.profit/bestProduct.qty):'--'}</b></div>
     </div>
     <div class="ref-mini-grid">
       <div class="ref-mini-card"><span>Loja campeã</span><b>${bestStore?esc(bestStore.name):'Sem dados'}</b></div>
@@ -1400,9 +1439,10 @@ function refStoreCards(orders){
   }).join('')}</section>`;
 }
 function refChampionProduct(orders){
-  const rows=productPerformance(orders).filter(p=>p.qty>0).sort((a,b)=>b.profit-a.profit);
+  const rows=productPerformance(orders).filter(p=>p.qty>0);
   auditProductCalculations('Financeiro/Dashboard',rows);
-  return rows.find(p=>p.photo&&p.linked)||rows.find(p=>p.photo)||rows[0]||null;
+  const calculated=rows.filter(p=>p.calculationStatus==='ok').sort((a,b)=>b.profit-a.profit);
+  return calculated.find(p=>p.photo&&p.linked)||calculated.find(p=>p.photo)||calculated[0]||null;
 }
 function renderFinanceiroView(){
   const orders=filteredOrders(), s=summarizeOrders(orders), reserve=erpReserveTotal(s), available=s.net-reserve, margin=s.net?s.profit/s.net*100:0;
@@ -1435,21 +1475,24 @@ function auditProductCalculations(context,products){
   if(!Array.isArray(products))return;
   const rows=products.filter(p=>Number(p.qty)>0).map(p=>{
     const qty=Number(p.qty)||0, revenue=Number(p.net)||0, unit=Number(p.unitCost)||0;
-    const expectedCost=unit*qty, expectedProfit=revenue-expectedCost, expectedMargin=revenue?expectedProfit/revenue*100:0;
+    const canCalculate=p.calculationStatus==='ok'&&qty>0&&revenue>0&&unit>0;
+    const expectedCost=canCalculate?unit*qty:0, expectedProfit=canCalculate?revenue-expectedCost:0, expectedMargin=canCalculate&&revenue?expectedProfit/revenue*100:null;
     const cardCost=Number(p.cost)||0, cardProfit=Number(p.profit)||0, cardMargin=Number(p.margin)||0;
     return {
       contexto:context,
       nome:p.name,
-      quantidade:qty,
-      receita:Number(revenue.toFixed(2)),
-      custo_unitario:Number(unit.toFixed(2)),
-      custo_total:Number(expectedCost.toFixed(2)),
-      lucro:Number(expectedProfit.toFixed(2)),
-      margem:Number(expectedMargin.toFixed(2)),
+      quantidadeVendida:qty,
+      receitaLiquidaTotal:Number(revenue.toFixed(2)),
+      custoUnitarioReal:canCalculate?Number(unit.toFixed(2)):null,
+      custoTotalReal:canCalculate?Number(expectedCost.toFixed(2)):null,
+      lucroReal:canCalculate?Number(expectedProfit.toFixed(2)):null,
+      margemReal:canCalculate?Number(expectedMargin.toFixed(2)):null,
       card_custo:Number(cardCost.toFixed(2)),
       card_lucro:Number(cardProfit.toFixed(2)),
       card_margem:Number(cardMargin.toFixed(2)),
-      divergencia:(Math.abs(expectedCost-cardCost)>0.01||Math.abs(expectedProfit-cardProfit)>0.01||Math.abs(expectedMargin-cardMargin)>0.01)?'SIM':''
+      statusCalculo:canCalculate?'OK':(p.calculationPendingReason||p.costStatusLabel||'Pendente'),
+      suspeito:canCalculate&&expectedMargin>70?'SUSPEITO - validar calculo':'',
+      divergencia:canCalculate&&(Math.abs(expectedCost-cardCost)>0.01||Math.abs(expectedProfit-cardProfit)>0.01||Math.abs(expectedMargin-cardMargin)>0.01)?'SIM':''
     };
   });
   if(!rows.length)return;
@@ -1457,6 +1500,7 @@ function auditProductCalculations(context,products){
   window.__jm3dCalculationAudits=[...(window.__jm3dCalculationAudits||[]),window.__jm3dCalculationAudit].slice(-10);
   console.groupCollapsed(`[JM3D auditoria de calculo] ${context}`);
   console.log('[JM3D auditoria de calculo dados]', JSON.stringify(rows));
+  if(rows.some(r=>r.suspeito))console.warn('[JM3D auditoria] Produto com margem acima de 70%. Validar custo, quantidade e receita.', rows.filter(r=>r.suspeito));
   console.table(rows);
   console.groupEnd();
 }
@@ -1466,9 +1510,16 @@ function productPerformance(orders=filteredOrders()){
   orders.forEach(o=>{
     const match=findProductMatch(o);
     const linked=catalog.find(p=>p.id===o.linkedProductId||p.legacyProductId===o.linkedProductId);
-    const product=(match.product&&match.confidence>=.54)?match.product:linked;
-    if(!product)return;
+    let product=(match.product&&match.confidence>=.54)?match.product:linked;
+    if(jmIsPlaceholderProduct(product)&&linked&&!jmIsPlaceholderProduct(linked))product=linked;
+    if(!product||jmIsPlaceholderProduct(product))return;
     const id=product.id||product.legacyProductId;
+    const readiness=productCostReadiness(product,Number(o.costParts?.mei)||Number(o.productionCost?.meiAllocated)||0);
+    const qty=orderQuantity(o), m=marketplaceFilterValue(o.marketplace), net=orderNet(o), gross=orderGross(o);
+    const calcOk=(o.calculationStatus==='ok'||(!o.calculationStatus&&readiness.ok&&qty>0&&net>0));
+    const orderUnitCost=calcOk?(Number(o.unitCost)||readiness.unitCost):0;
+    const orderCost=calcOk?orderUnitCost*qty:0;
+    const pendingReason=!product?'Produto nao vinculado':!readiness.ok?readiness.label:qty<=0?'Quantidade vendida ausente':net<=0?'Valor liquido recebido ausente':(o.calculationPendingReason||'Pendente de calculo');
     byId[id]=byId[id]||{
       id,
       name:product.name||product.officialName||'Produto oficial',
@@ -1478,44 +1529,67 @@ function productPerformance(orders=filteredOrders()){
       photo:product.photoUrl||product.photo||o.importedPhotoUrl||'',
       linked:true,
       qty:0,orders:0,gross:0,net:0,cost:0,profit:0,margin:0,
+      calculableOrders:0,pendingOrders:0,calculationStatus:'ok',calculationPendingReason:'',costStatusLabel:'OK',
       mainMarketplace:'',
       marketplaces:{},
       marketplaceStats:{},
       _orders:[]
     };
-    const p=byId[id], qty=orderQuantity(o), m=marketplaceFilterValue(o.marketplace);
-    const orderCost=Number(o.totalCost||o.productionCost?.totalCost)||0;
+    const p=byId[id];
     p.qty+=qty;
     p.orders+=1;
-    p.gross+=orderGross(o);
-    p.net+=orderNet(o);
-    p.cost+=orderCost;
+    p.gross+=gross;
+    p.net+=net;
+    if(calcOk){
+      p.cost+=orderCost;
+      p.calculableOrders+=1;
+    }else{
+      p.pendingOrders+=1;
+      p.calculationStatus='pending';
+      if(!p.calculationPendingReason)p.calculationPendingReason=pendingReason;
+      p.costStatusLabel=readiness.ok?'Pendente de calculo':readiness.label;
+    }
     p._orders.push(o);
-    p.marketplaceStats[m]=p.marketplaceStats[m]||{qty:0,net:0,cost:0,profit:0};
+    p.marketplaceStats[m]=p.marketplaceStats[m]||{qty:0,net:0,cost:0,profit:0,pending:0};
     p.marketplaceStats[m].qty+=qty;
-    p.marketplaceStats[m].net+=orderNet(o);
-    p.marketplaceStats[m].cost+=orderCost;
+    p.marketplaceStats[m].net+=net;
+    if(calcOk)p.marketplaceStats[m].cost+=orderCost;
+    else p.marketplaceStats[m].pending+=1;
   });
   Object.values(byId).forEach(p=>{
     const product=catalog.find(x=>x.id===p.id||x.legacyProductId===p.id)||{};
-    const fallbackUnit=resolveProductPerformanceUnitCost(product,p._orders);
-    if(!p.cost&&fallbackUnit)p.cost=fallbackUnit*p.qty;
-    p.unitCost=p.qty?p.cost/p.qty:fallbackUnit;
-    p.profit=p.net-p.cost;
+    const readiness=productCostReadiness(product,0);
+    if(!readiness.ok&&p.qty>0){
+      p.calculationStatus='pending';
+      p.calculationPendingReason=readiness.label;
+      p.costStatusLabel=readiness.label;
+    }
+    if(p.calculationStatus==='ok'&&p.qty>0&&p.net>0){
+      if(!p.cost&&readiness.ok)p.cost=readiness.unitCost*p.qty;
+      p.unitCost=p.cost/p.qty;
+      p.profit=p.net-p.cost;
+      p.margin=p.net?p.profit/p.net*100:0;
+    }else{
+      p.unitCost=readiness.ok?readiness.unitCost:0;
+      p.cost=0;
+      p.profit=0;
+      p.margin=null;
+    }
     Object.keys(p.marketplaceStats||{}).forEach(m=>{
       const stat=p.marketplaceStats[m];
-      if(!stat.cost&&p.unitCost)stat.cost=p.unitCost*stat.qty;
-      stat.profit=stat.net-stat.cost;
-      p.marketplaces[m]=stat.profit;
+      if(p.calculationStatus==='ok'&&!stat.cost&&p.unitCost)stat.cost=p.unitCost*stat.qty;
+      stat.profit=p.calculationStatus==='ok'?stat.net-stat.cost:0;
+      p.marketplaces[m]=p.calculationStatus==='ok'?stat.profit:0;
     });
-    p.margin=p.net?p.profit/p.net*100:0;
     p.mainMarketplace=Object.keys(p.marketplaces).sort((a,b)=>p.marketplaces[b]-p.marketplaces[a])[0]||mainMarketplaceFromProduct(product);
     delete p._orders;
   });
   catalog.forEach(product=>{
+    if(jmIsPlaceholderProduct(product))return;
     const id=product.id||product.legacyProductId;
     if(!id||byId[id])return;
-    byId[id]={id,name:product.name||product.officialName||'Produto oficial',sku:product.sku||'',itemId:firstMarketplaceId(product),category:product.category||'',photo:product.photoUrl||product.photo||'',linked:true,qty:0,orders:0,gross:0,net:0,cost:0,profit:0,margin:0,unitCost:resolveProductPerformanceUnitCost(product,[]),mainMarketplace:mainMarketplaceFromProduct(product),marketplaces:{},marketplaceStats:{}};
+    const readiness=productCostReadiness(product,0);
+    byId[id]={id,name:product.name||product.officialName||'Produto oficial',sku:product.sku||'',itemId:firstMarketplaceId(product),category:product.category||'',photo:product.photoUrl||product.photo||'',linked:true,qty:0,orders:0,gross:0,net:0,cost:0,profit:0,margin:null,unitCost:readiness.ok?readiness.unitCost:0,mainMarketplace:mainMarketplaceFromProduct(product),marketplaces:{},marketplaceStats:{},calculationStatus:readiness.ok?'idle':'pending',calculationPendingReason:readiness.ok?'Sem vendas no periodo':readiness.label,costStatusLabel:readiness.ok?'OK':readiness.label,calculableOrders:0,pendingOrders:0};
   });
   return Object.values(byId);
 }
@@ -1532,9 +1606,12 @@ function mainMarketplaceFromProduct(p){
 function renderErpProducts(){
   const content=document.getElementById('content'); if(!content)return;
   const orders=filteredOrders(), products=productPerformance(orders);
+  const realMargin=p=>p.calculationStatus==='ok'?Number(p.margin):-Infinity;
+  const lowMarginValue=p=>p.calculationStatus==='ok'?Number(p.margin):Infinity;
+  const realProfit=p=>p.calculationStatus==='ok'?Number(p.profit):0;
   const rankers={
-    sold:(a,b)=>b.qty-a.qty, profit:(a,b)=>b.profit-a.profit, margin:(a,b)=>b.margin-a.margin,
-    lowMargin:(a,b)=>a.margin-b.margin, loss:(a,b)=>a.profit-b.profit, slow:(a,b)=>a.qty-b.qty
+    sold:(a,b)=>b.qty-a.qty, profit:(a,b)=>realProfit(b)-realProfit(a), margin:(a,b)=>realMargin(b)-realMargin(a),
+    lowMargin:(a,b)=>lowMarginValue(a)-lowMarginValue(b), loss:(a,b)=>realProfit(a)-realProfit(b), slow:(a,b)=>a.qty-b.qty
   };
   const labels={sold:'Mais vendidos',profit:'Mais lucrativos',margin:'Maior margem',lowMargin:'Menor margem',loss:'Prejuízo',slow:'Pouca saída'};
   const query=norm(analysisFilters.q);
@@ -1878,9 +1955,12 @@ function jmInitials(text){
 function renderErpProducts(){
   const content=document.getElementById('content'); if(!content)return;
   const orders=filteredOrders(), products=productPerformance(orders);
+  const realMargin=p=>p.calculationStatus==='ok'?Number(p.margin):-Infinity;
+  const lowMarginValue=p=>p.calculationStatus==='ok'?Number(p.margin):Infinity;
+  const realProfit=p=>p.calculationStatus==='ok'?Number(p.profit):0;
   const rankers={
-    sold:(a,b)=>b.qty-a.qty, profit:(a,b)=>b.profit-a.profit, margin:(a,b)=>b.margin-a.margin,
-    lowMargin:(a,b)=>a.margin-b.margin, loss:(a,b)=>a.profit-b.profit, slow:(a,b)=>a.qty-b.qty
+    sold:(a,b)=>b.qty-a.qty, profit:(a,b)=>realProfit(b)-realProfit(a), margin:(a,b)=>realMargin(b)-realMargin(a),
+    lowMargin:(a,b)=>lowMarginValue(a)-lowMarginValue(b), loss:(a,b)=>realProfit(a)-realProfit(b), slow:(a,b)=>a.qty-b.qty
   };
   const labels={sold:'Mais vendidos',profit:'Mais lucrativos',margin:'Maior margem',lowMargin:'Menor margem',loss:'Prejuízo',slow:'Pouca saída'};
   const query=norm(analysisFilters.q);
@@ -1898,18 +1978,20 @@ function renderErpProducts(){
   </div>`;
 }
 function renderErpProductCard(p){
-  const h=erpHealth(p.margin,p.profit);
+  const pending=p.calculationStatus!=='ok'||!Number.isFinite(Number(p.margin));
+  const h=pending?{cls:'warn',label:p.costStatusLabel||p.calculationPendingReason||'Custo incompleto'}:erpHealth(p.margin,p.profit);
   const badges=[];
   if(p.qty>=20)badges.push(['good','Mais vendido']);
-  if(p.profit>0&&p.margin>=45)badges.push(['good','Excelente']);
-  if(p.margin<20)badges.push(['warn','Margem baixa']);
-  if(p.profit<0)badges.push(['bad','Prejuízo']);
+  if(!pending&&p.profit>0&&p.margin>=45)badges.push(['good','Excelente']);
+  if(!pending&&p.margin<20)badges.push(['warn','Margem baixa']);
+  if(!pending&&p.profit<0)badges.push(['bad','Prejuízo']);
+  if(pending&&p.qty>0)badges.push(['warn','Pendencia de calculo']);
   if(!p.linked)badges.push(['bad','Sem vínculo']);
   if(!p.sku)badges.push(['warn','Sem SKU']);
   return `<div class="erp-product-card" onclick="openProductDashboard('${ea(p.id)}')">
     ${p.photo?`<img class="erp-product-img" src="${ea(p.photo)}" alt="${ea(p.name)}">`:`<div class="erp-product-fallback">${jmInitials(p.name)}</div>`}
     <div><div class="erp-product-name">${esc(p.name)}</div><div class="erp-product-meta">${marketplaceLabel(p.mainMarketplace)} | SKU ${esc(p.sku||'-')} | Item ${esc(p.itemId||'-')}<br>${p.qty} vendas</div>
-    <div class="erp-product-numbers"><div><span>Recebido</span><b>${brl(p.net)}</b></div><div><span>Custou</span><b>${brl(p.cost)}</b></div><div><span>Lucro</span><b>${brl(p.profit)}</b></div><div><span>Margem</span><b>${pct(p.margin)}</b></div></div>
+    <div class="erp-product-numbers"><div><span>Recebido</span><b>${brl(p.net)}</b></div><div><span>Custou</span><b>${pending?esc(p.costStatusLabel||'Custo incompleto'):brl(p.cost)}</b></div><div><span>Lucro</span><b>${pending?'--':brl(p.profit)}</b></div><div><span>Margem</span><b>${pending?'--':pct(p.margin)}</b></div></div>
     <div class="badge-row"><span class="biz-badge ${h.cls}">${h.label}</span>${badges.map(([cls,b])=>`<span class="biz-badge ${cls}">${b}</span>`).join('')}</div></div>
   </div>`;
 }
