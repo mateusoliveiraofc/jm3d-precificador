@@ -482,6 +482,37 @@ function productHasExactUrl(p,url){
   const u=norm(url);
   return !!u&&catalogProductLinks(p).some(link=>norm(link)===u);
 }
+function productSearchNames(p){
+  return [p?.officialName,p?.name,...(p?.aliases||[])].map(norm).filter(Boolean);
+}
+function productTextScore(text,p){
+  const on=norm(text);
+  if(!on)return 0;
+  let best=0;
+  productSearchNames(p).forEach(name=>{
+    if(!name)return;
+    const nameTokens=name.split(' ').filter(x=>x.length>2).length;
+    const onTokens=on.split(' ').filter(x=>x.length>2).length;
+    if(name===on)best=Math.max(best,100);
+    if(on.includes(name)||name.includes(on))best=Math.max(best,nameTokens>=3?88:62);
+    const a=new Set(on.split(' ').filter(x=>x.length>2));
+    const b=new Set(name.split(' ').filter(x=>x.length>2));
+    const inter=[...a].filter(x=>b.has(x)).length;
+    const dice=(inter*2)/Math.max(1,a.size+b.size)*100;
+    const coverage=inter/Math.max(1,Math.min(a.size,b.size))*100;
+    const cap=(nameTokens<3||onTokens<3)?68:100;
+    best=Math.max(best,Math.min(cap,dice),Math.min(cap,coverage*.82));
+  });
+  return best;
+}
+function bestProductTextMatch(text,catalog){
+  let best=null,bestScore=0;
+  catalog.forEach(p=>{
+    const score=productTextScore(text,p);
+    if(score>bestScore){best=p;bestScore=score;}
+  });
+  return {product:best,score:bestScore};
+}
 function manualRuleKeys(o){
   const urlInfo=extractOrderUrlInfo(o);
   const keys=[
@@ -495,12 +526,6 @@ function manualRuleKeys(o){
 }
 function findProductMatch(o){
   const catalog=catalogProducts();
-  for(const key of manualRuleKeys(o)){
-    const rule=productMatchRules[key];
-    if(!rule)continue;
-    const p=catalog.find(x=>x.id===rule.productId||x.legacyProductId===rule.productId);
-    if(p)return {product:p,confidence:1,method:'regra permanente'};
-  }
   const urlInfo=extractOrderUrlInfo(o);
   const itemId=cleanCell(o.itemId||o.importedItemId||urlInfo.itemId);
   if(itemId){
@@ -522,14 +547,16 @@ function findProductMatch(o){
     const p=catalog.find(x=>productHasShopItem(x,shopId,itemId));
     if(p)return {product:p,confidence:.95,method:'shopId + itemId'};
   }
+  for(const key of manualRuleKeys(o)){
+    const rule=productMatchRules[key];
+    if(!rule)continue;
+    const p=catalog.find(x=>x.id===rule.productId||x.legacyProductId===rule.productId);
+    if(p)return {product:p,confidence:.92,method:'regra permanente'};
+  }
   const on=norm(o.productName||o.importedProductName);
   if(on){
-    const exact=catalog.find(p=>norm(p.name)===on);
+    const exact=catalog.find(p=>productSearchNames(p).some(name=>name===on));
     if(exact)return {product:exact,confidence:.88,method:'nome exato'};
-    for(const p of catalog){
-      const aliases=(p.aliases||[]).map(norm).filter(Boolean);
-      if(aliases.some(a=>a===on||on.includes(a)||a.includes(on)))return {product:p,confidence:.84,method:'alias'};
-    }
   }
   const importedPhoto=o.importedPhotoUrl||o.photoUrl||'';
   if(importedPhoto){
@@ -541,26 +568,13 @@ function findProductMatch(o){
     if(p)return {product:p,confidence:.76,method:'foto semelhante'};
   }
   if(!on)return {product:null,confidence:0,method:'none'};
-  let best=null,bestScore=0;
-  catalog.forEach(p=>{
-    const pn=norm(p.name);
-    let score=on.includes(pn)||pn.includes(on)?58:0;
-    if(!score){
-      const a=new Set(on.split(' ').filter(x=>x.length>2));
-      const b=new Set(pn.split(' ').filter(x=>x.length>2));
-      const inter=[...a].filter(x=>b.has(x)).length;
-      score=b.size?inter/b.size*52:0;
-    }
-    if(score>bestScore){best=p;bestScore=score;}
-  });
-  return bestScore>=42?{product:best,confidence:Math.min(.70,bestScore/100),method:'nome parecido'}:{product:null,confidence:0,method:'none'};
+  const best=bestProductTextMatch(on,catalog);
+  return best.score>=54?{product:best.product,confidence:Math.min(.82,best.score/100),method:'similaridade textual'}:{product:null,confidence:0,method:'none'};
 }
 function linkSuggestionScore(order,p){
   const direct=findProductMatch(Object.assign({},order,{itemId:order.itemId||order.importedItemId,sku:order.sku||order.importedSku}));
   if(direct.product&&(direct.product.id===p.id||direct.product.legacyProductId===p.id))return direct.confidence*100;
-  const on=norm(order.productName||order.importedProductName), pn=norm(p.name);
-  const alias=(p.aliases||[]).some(a=>on&&norm(a)&&on.includes(norm(a)));
-  return alias?70:(on&&pn&&on.includes(pn)?55:0);
+  return productTextScore(order.productName||order.importedProductName,p);
 }
 function openLinkProduct(orderId){
   const o=analyzedOrders().find(x=>x.id===orderId)||marketplaceOrders.find(x=>x.id===orderId)||importReview?.orders.find(x=>x.id===orderId);
@@ -1450,36 +1464,58 @@ function productPerformance(orders=filteredOrders()){
   const catalog=catalogProducts();
   const byId={};
   orders.forEach(o=>{
-    const id=o.linkedProductId||slug(o.linkedProductName||o.productName||'sem_vinculo');
-    const product=catalog.find(p=>p.id===id||p.legacyProductId===id)||{};
-    byId[id]=byId[id]||{id,name:o.linkedProductName||product.name||o.productName||'Produto não vinculado',sku:product.sku||o.sku||'',itemId:o.itemId||o.importedItemId||firstMarketplaceId(product)||'',category:product.category||'',photo:product.photoUrl||product.photo||o.importedPhotoUrl||'',linked:!!o.linkedProductId,qty:0,orders:0,gross:0,net:0,cost:0,profit:0,margin:0,mainMarketplace:'',marketplaces:{}};
-    byId[id].unitCost=byId[id].unitCost||0;
-    byId[id].marketplaceStats=byId[id].marketplaceStats||{};
-    byId[id]._orders=byId[id]._orders||[];
+    const match=findProductMatch(o);
+    const linked=catalog.find(p=>p.id===o.linkedProductId||p.legacyProductId===o.linkedProductId);
+    const product=(match.product&&match.confidence>=.54)?match.product:linked;
+    if(!product)return;
+    const id=product.id||product.legacyProductId;
+    byId[id]=byId[id]||{
+      id,
+      name:product.name||product.officialName||'Produto oficial',
+      sku:product.sku||o.sku||o.importedSku||'',
+      itemId:o.itemId||o.importedItemId||firstMarketplaceId(product)||'',
+      category:product.category||'',
+      photo:product.photoUrl||product.photo||o.importedPhotoUrl||'',
+      linked:true,
+      qty:0,orders:0,gross:0,net:0,cost:0,profit:0,margin:0,
+      mainMarketplace:'',
+      marketplaces:{},
+      marketplaceStats:{},
+      _orders:[]
+    };
     const p=byId[id], qty=orderQuantity(o), m=marketplaceFilterValue(o.marketplace);
-    p.qty+=qty; p.orders++; p.gross+=orderGross(o); p.net+=orderNet(o); p._orders.push(o);
-    p.marketplaceStats[m]=p.marketplaceStats[m]||{qty:0,net:0,profit:0};
+    const orderCost=Number(o.totalCost||o.productionCost?.totalCost)||0;
+    p.qty+=qty;
+    p.orders+=1;
+    p.gross+=orderGross(o);
+    p.net+=orderNet(o);
+    p.cost+=orderCost;
+    p._orders.push(o);
+    p.marketplaceStats[m]=p.marketplaceStats[m]||{qty:0,net:0,cost:0,profit:0};
     p.marketplaceStats[m].qty+=qty;
     p.marketplaceStats[m].net+=orderNet(o);
+    p.marketplaceStats[m].cost+=orderCost;
   });
   Object.values(byId).forEach(p=>{
     const product=catalog.find(x=>x.id===p.id||x.legacyProductId===p.id)||{};
-    p.unitCost=p.linked?resolveProductPerformanceUnitCost(product,p._orders):(p.qty?p.net/p.qty:0);
-    p.cost=p.unitCost*p.qty;
+    const fallbackUnit=resolveProductPerformanceUnitCost(product,p._orders);
+    if(!p.cost&&fallbackUnit)p.cost=fallbackUnit*p.qty;
+    p.unitCost=p.qty?p.cost/p.qty:fallbackUnit;
     p.profit=p.net-p.cost;
     Object.keys(p.marketplaceStats||{}).forEach(m=>{
       const stat=p.marketplaceStats[m];
-      stat.profit=stat.net-(p.unitCost*stat.qty);
+      if(!stat.cost&&p.unitCost)stat.cost=p.unitCost*stat.qty;
+      stat.profit=stat.net-stat.cost;
       p.marketplaces[m]=stat.profit;
     });
     p.margin=p.net?p.profit/p.net*100:0;
-    p.mainMarketplace=Object.keys(p.marketplaces).sort((a,b)=>p.marketplaces[b]-p.marketplaces[a])[0]||'-';
+    p.mainMarketplace=Object.keys(p.marketplaces).sort((a,b)=>p.marketplaces[b]-p.marketplaces[a])[0]||mainMarketplaceFromProduct(product);
     delete p._orders;
   });
   catalog.forEach(product=>{
     const id=product.id||product.legacyProductId;
     if(!id||byId[id])return;
-    byId[id]={id,name:product.name||'Produto sem nome',sku:product.sku||'',itemId:firstMarketplaceId(product),category:product.category||'',photo:product.photoUrl||product.photo||'',linked:true,qty:0,orders:0,gross:0,net:0,cost:0,profit:0,margin:0,unitCost:resolveProductPerformanceUnitCost(product,[]),mainMarketplace:mainMarketplaceFromProduct(product),marketplaces:{},marketplaceStats:{}};
+    byId[id]={id,name:product.name||product.officialName||'Produto oficial',sku:product.sku||'',itemId:firstMarketplaceId(product),category:product.category||'',photo:product.photoUrl||product.photo||'',linked:true,qty:0,orders:0,gross:0,net:0,cost:0,profit:0,margin:0,unitCost:resolveProductPerformanceUnitCost(product,[]),mainMarketplace:mainMarketplaceFromProduct(product),marketplaces:{},marketplaceStats:{}};
   });
   return Object.values(byId);
 }

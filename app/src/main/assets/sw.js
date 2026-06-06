@@ -1,8 +1,9 @@
-const CACHE_NAME = 'jm3d-v3';
+const CACHE_NAME = 'jm3d-v4';
 const ASSETS = [
   './',
   './index.html',
   './xlsx.full.min.js',
+  './official_catalog.js',
   './marketplace.js',
   './manifest.json',
   './logo.png',

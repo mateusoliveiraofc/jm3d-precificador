@@ -13,6 +13,7 @@ local.properties
 *.apk
 *.aab
 *.log
+.firebase/
 
 # OS files
 Thumbs.db

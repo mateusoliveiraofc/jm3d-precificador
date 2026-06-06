@@ -1170,6 +1170,7 @@ body{background:#0B0F14;color:#F8FAFC}
 </div>
 <input type="file" id="fi-photo" accept="image/*" style="display:none" onchange="onPhotoSelected(event)">
 
+<script src="official_catalog.js"></script>
 <script src="marketplace.js"></script>
 <script>
 // ── UTILS ──────────────────────────────────────────────────────────────────
@@ -1374,6 +1375,32 @@ function saveLocalConfig(c){localStorage.setItem('jm3d_cfg',JSON.stringify(c));}
 function productCatalogId(p){
   return p.catalogId||p.id||('prod_'+slug(p.sku||p.name));
 }
+function isPlaceholderProductName(name){
+  const n=norm(name);
+  return !n||n==='produto sem nome'||n==='produto nao vinculado'||n==='produto n o vinculado'||n==='item desconhecido'||n==='sem vinculo'||n==='sem vinculo';
+}
+function officialToCatalogProduct(p){
+  const now=new Date().toISOString();
+  const aliases=Array.isArray(p.aliases)?p.aliases:[];
+  if(p.name&&!aliases.some(a=>norm(a)===norm(p.name)))aliases.unshift(p.name);
+  return {
+    id:p.id||('prod_oficial_'+slug(p.name)),
+    name:p.name||p.officialName||'Produto oficial',
+    officialName:p.officialName||p.name||'',
+    source:p.source||'Produtos_Custo',
+    sourceRow:p.sourceRow||0,
+    sku:p.sku||'',
+    photoUrl:p.photoUrl||p.photo||'',
+    links:p.links||{},
+    marketplaceIds:p.marketplaceIds||{},
+    shopIds:p.shopIds||{},
+    aliases,
+    costs:p.costs||{},
+    marketplaceSettings:p.marketplaceSettings||{},
+    createdAt:p.createdAt||now,
+    updatedAt:p.updatedAt||now
+  };
+}
 function legacyToCatalogProduct(p){
   const cfg=getMarketplaceSettings();
   const now=new Date().toISOString();
@@ -1426,10 +1453,67 @@ function legacyToCatalogProduct(p){
     updatedAt:now
   };
 }
+function catalogMergeScore(a,b){
+  if(!a||!b)return 0;
+  const skuA=norm(a.sku), skuB=norm(b.sku);
+  if(skuA&&skuB&&skuA===skuB)return 100;
+  const idsA=Object.values(a.marketplaceIds||{}).map(norm).filter(Boolean);
+  const idsB=Object.values(b.marketplaceIds||{}).map(norm).filter(Boolean);
+  if(idsA.some(x=>idsB.includes(x)))return 98;
+  const linksA=Object.values(a.links||{}).map(norm).filter(Boolean);
+  const linksB=Object.values(b.links||{}).map(norm).filter(Boolean);
+  if(linksA.some(x=>linksB.some(y=>x===y||x.includes(y)||y.includes(x))))return 94;
+  const namesA=[a.name,...(a.aliases||[])].map(norm).filter(Boolean);
+  const namesB=[b.name,...(b.aliases||[])].map(norm).filter(Boolean);
+  if(namesA.some(x=>namesB.includes(x)))return 90;
+  let best=0;
+  namesA.forEach(x=>namesB.forEach(y=>{
+    if(x.length<5||y.length<5)return;
+    if(x.includes(y)||y.includes(x))best=Math.max(best,82);
+    const ta=new Set(x.split(' ').filter(w=>w.length>2));
+    const tb=new Set(y.split(' ').filter(w=>w.length>2));
+    const inter=[...ta].filter(w=>tb.has(w)).length;
+    const score=(inter*2)/Math.max(1,ta.size+tb.size)*100;
+    best=Math.max(best,score);
+  }));
+  return best;
+}
+function mergeCatalogEntries(base,next,officialWins=false){
+  const aliases=[...(base?.aliases||[]),...(next?.aliases||[]),base?.name,next?.name].filter(Boolean);
+  const cleanObj=obj=>Object.fromEntries(Object.entries(obj||{}).filter(([,v])=>v!==undefined&&v!==null&&String(v).trim()!==''));
+  return Object.assign({},next,base,{
+    id:base?.id||next?.id,
+    legacyProductId:next?.legacyProductId||base?.legacyProductId||'',
+    name:officialWins?(base?.officialName||base?.name||next?.name):(next?.name||base?.name),
+    officialName:base?.officialName||next?.officialName||base?.name||next?.name||'',
+    sku:next?.sku||base?.sku||'',
+    photoUrl:next?.photoUrl||next?.photo||base?.photoUrl||base?.photo||'',
+    links:Object.assign({},cleanObj(base?.links),cleanObj(next?.links)),
+    marketplaceIds:Object.assign({},cleanObj(base?.marketplaceIds),cleanObj(next?.marketplaceIds)),
+    shopIds:Object.assign({},cleanObj(base?.shopIds),cleanObj(next?.shopIds)),
+    aliases:[...new Set(aliases.map(x=>String(x).trim()).filter(Boolean))],
+    costs:Object.assign({},next?.costs||{},base?.costs||{}),
+    marketplaceSettings:Object.assign({},base?.marketplaceSettings||{},next?.marketplaceSettings||{}),
+    updatedAt:new Date().toISOString()
+  });
+}
 function mergedProductCatalog(){
   const byId={};
-  localProducts.forEach(p=>{byId[productCatalogId(p)]=legacyToCatalogProduct(p);});
-  productCatalog.forEach(p=>{byId[p.id]=Object.assign(byId[p.id]||{},p);});
+  const official=(window.JM3D_OFFICIAL_CATALOG||[]).map(officialToCatalogProduct);
+  official.forEach(p=>{byId[p.id]=p;});
+  const put=(entry)=>{
+    if(isPlaceholderProductName(entry?.name))return;
+    const currentOfficial=official.map(p=>({p,score:catalogMergeScore(p,entry)})).sort((a,b)=>b.score-a.score)[0];
+    if(currentOfficial&&currentOfficial.score>=72){
+      byId[currentOfficial.p.id]=mergeCatalogEntries(byId[currentOfficial.p.id]||currentOfficial.p,entry,true);
+      return;
+    }
+    byId[entry.id]=mergeCatalogEntries(byId[entry.id]||{},entry,false);
+  };
+  localProducts.forEach(p=>put(legacyToCatalogProduct(p)));
+  productCatalog.forEach(p=>put(Object.assign({},officialToCatalogProduct(p),p,{
+    aliases:Array.isArray(p.aliases)?p.aliases:officialToCatalogProduct(p).aliases
+  })));
   return Object.values(byId);
 }
 async function saveProductCatalogMirror(p){
