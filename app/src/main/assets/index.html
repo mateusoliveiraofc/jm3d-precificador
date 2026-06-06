@@ -1280,6 +1280,7 @@ const USER_ID='default';
 let db=null, userRootRef=null, productsRef=null, configRef=null, productCatalogRef=null,
     marketplaceOrdersRef=null, marketplaceSettingsRef=null, marketplaceImportsRef=null, matchRulesRef=null,
     legacyMarketplaceOrdersRef=null, legacyMarketplaceSettingsRef=null, legacyMatchRulesRef=null;
+const MARKETPLACE_ORDER_LIMIT=1500;
 
 function getFirebaseConfig(){
   return JSON.parse(localStorage.getItem('jm3d_firebase')||'null');
@@ -1539,21 +1540,29 @@ function startListeners(){
   setSyncStatus('loading','Sincronizando...');
 
   productsRef.on('value', snap=>{
+    console.time('loadProducts');
     const data=snap.val();
     localProducts=data?Object.values(data).sort((a,b)=>b.savedTs-a.savedTs):[];
     migrateLegacyProductsToCatalog();
     setSyncStatus('ok','✅ Sincronizado');
-    if(['financeiro','produtos','importacoes','precificacao'].includes(curTab))renderContent();
+    console.timeEnd('loadProducts');
+    console.info('[JM3D perf] produtos antigos carregados', localProducts.length);
+    if(typeof jmInvalidatePerformanceCaches==='function')jmInvalidatePerformanceCaches('legacyProducts');
+    if(['financeiro','produtos','importacoes','precificacao'].includes(curTab))scheduleRenderContent('legacyProducts');
   }, err=>{
     setSyncStatus('err','❌ Sem conexão — modo offline');
     localProducts=JSON.parse(localStorage.getItem('jm3d_products')||'[]');
   });
 
   if(productCatalogRef)productCatalogRef.on('value',snap=>{
+    console.time('loadProducts');
     productCatalog=Object.values(snap.val()||{});
     localStorage.setItem('jm3d_product_catalog',JSON.stringify(productCatalog));
     migrateLegacyProductsToCatalog();
-    if(['financeiro','produtos','importacoes','precificacao'].includes(curTab))renderContent();
+    console.timeEnd('loadProducts');
+    console.info('[JM3D perf] produtos carregados', productCatalog.length);
+    if(typeof jmInvalidatePerformanceCaches==='function')jmInvalidatePerformanceCaches('productCatalog');
+    if(['financeiro','produtos','importacoes','precificacao'].includes(curTab))scheduleRenderContent('productCatalog');
   });
 
   configRef.on('value', snap=>{
@@ -1564,26 +1573,32 @@ function startListeners(){
     }
   });
 
-  if(marketplaceOrdersRef)marketplaceOrdersRef.on('value',snap=>{
+  if(marketplaceOrdersRef)marketplaceOrdersRef.orderByChild('paymentDate').limitToLast(MARKETPLACE_ORDER_LIMIT).on('value',snap=>{
+    console.time('loadOrders');
     const data=snap.val()||{};
     marketplaceOrders=Object.values(data).sort((a,b)=>String(b.date||b.orderDate||'').localeCompare(String(a.date||a.orderDate||'')));
-    if(['financeiro','produtos','importacoes','precificacao'].includes(curTab))renderContent();
+    console.timeEnd('loadOrders');
+    console.info('[JM3D perf] pedidos carregados', marketplaceOrders.length, 'limite', MARKETPLACE_ORDER_LIMIT);
+    if(typeof jmInvalidatePerformanceCaches==='function')jmInvalidatePerformanceCaches('marketplaceOrders');
+    if(['financeiro','produtos','importacoes','precificacao'].includes(curTab))scheduleRenderContent('marketplaceOrders');
   });
   if(legacyMarketplaceOrdersRef)legacyMarketplaceOrdersRef.on('value',snap=>{
     const legacy=Object.values(snap.val()||{});
     if(legacy.length&&!marketplaceOrders.length){
       marketplaceOrders=legacy.sort((a,b)=>String(b.date||b.orderDate||'').localeCompare(String(a.date||a.orderDate||'')));
-      if(['financeiro','produtos','importacoes','precificacao'].includes(curTab))renderContent();
+      if(typeof jmInvalidatePerformanceCaches==='function')jmInvalidatePerformanceCaches('legacyMarketplaceOrders');
+      if(['financeiro','produtos','importacoes','precificacao'].includes(curTab))scheduleRenderContent('legacyMarketplaceOrders');
     }
   });
   if(marketplaceImportsRef)marketplaceImportsRef.on('value',snap=>{
     marketplaceImports=Object.values(snap.val()||{}).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
-    if(['financeiro','importacoes'].includes(curTab))renderContent();
+    if(['financeiro','importacoes'].includes(curTab))scheduleRenderContent('marketplaceImports');
   });
   if(marketplaceSettingsRef)marketplaceSettingsRef.on('value',snap=>{
     const cfg=snap.val();
     if(cfg)localStorage.setItem('jm3d_market_cfg',JSON.stringify(Object.assign(getMarketplaceDefaults(),cfg)));
-    if(['financeiro','produtos','importacoes','precificacao','configuracoes'].includes(curTab))renderContent();
+    if(typeof jmInvalidatePerformanceCaches==='function')jmInvalidatePerformanceCaches('marketplaceSettings');
+    if(['financeiro','produtos','importacoes','precificacao','configuracoes'].includes(curTab))scheduleRenderContent('marketplaceSettings');
   });
   if(legacyMarketplaceSettingsRef)legacyMarketplaceSettingsRef.on('value',snap=>{
     const cfg=snap.val();
@@ -1591,12 +1606,14 @@ function startListeners(){
   });
   if(matchRulesRef)matchRulesRef.on('value',snap=>{
     productMatchRules=snap.val()||{};
-    if(['financeiro','produtos','importacoes','precificacao'].includes(curTab))renderContent();
+    if(typeof jmInvalidatePerformanceCaches==='function')jmInvalidatePerformanceCaches('matchRules');
+    if(['financeiro','produtos','importacoes','precificacao'].includes(curTab))scheduleRenderContent('matchRules');
   });
   if(legacyMatchRulesRef)legacyMatchRulesRef.on('value',snap=>{
     const legacy=snap.val()||{};
     productMatchRules=Object.assign({},legacy,productMatchRules);
-    if(['financeiro','produtos','importacoes','precificacao'].includes(curTab))renderContent();
+    if(typeof jmInvalidatePerformanceCaches==='function')jmInvalidatePerformanceCaches('legacyMatchRules');
+    if(['financeiro','produtos','importacoes','precificacao'].includes(curTab))scheduleRenderContent('legacyMatchRules');
   });
 }
 
@@ -1679,7 +1696,17 @@ function calcCosts(){
 }
 
 // ── TABS ───────────────────────────────────────────────────────────────────
+let renderContentTimer=null, renderContentReason='manual';
+function scheduleRenderContent(reason='scheduled',delay=80){
+  renderContentReason=reason;
+  clearTimeout(renderContentTimer);
+  renderContentTimer=setTimeout(()=>renderContent(),delay);
+}
+function debounceRenderContent(reason='input',delay=220){
+  scheduleRenderContent(reason,delay);
+}
 function swTab(t){
+  console.time('switchTab');
   if(curTab==='calc'){
     formState.name=document.getElementById('c-name')?.value||formState.name;
     formState.desc=document.getElementById('c-desc')?.value||formState.desc;
@@ -1690,14 +1717,21 @@ function swTab(t){
   document.querySelectorAll('.tab').forEach((el,i)=>
     el.classList.toggle('active',tabIds[i]===t));
   renderContent();
+  console.timeEnd('switchTab');
+  console.info('[JM3D perf] aba ativa', t);
 }
 function renderContent(){
+  console.time('renderContent');
+  const started=performance.now();
   if(curTab==='calc')renderCalc();
   else if(curTab==='produtos')renderErpProducts();
   else if(curTab==='importacoes')renderImportsPage();
   else if(curTab==='precificacao')document.getElementById('content').innerHTML=renderPricingView();
   else if(curTab==='configuracoes')document.getElementById('content').innerHTML=renderSettingsPage();
   else renderAnalysis();
+  console.timeEnd('renderContent');
+  console.info('[JM3D perf] render', {tab:curTab, reason:renderContentReason, ms:Math.round((performance.now()-started)*10)/10});
+  renderContentReason='manual';
 }
 
 function captureProductMeta(){

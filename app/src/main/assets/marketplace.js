@@ -856,6 +856,261 @@ function renderDashboardView(){
     <button class="btn btn-export" onclick="exportAnalysisCsv()">Exportar CSV da análise</button>
   </div>`;
 }
+
+/* Performance guardrails: cache heavy calculations and avoid full rerenders on input. */
+var jmPerfVersion=0;
+var jmAnalyzedCache={key:'',value:null};
+var jmFilteredCache={key:'',value:null};
+var jmProductPerformanceCache=new WeakMap();
+var jmProductRenderLimit=30;
+var jmProductPageSize=30;
+var jmOriginalAnalyzedOrders=analyzedOrders;
+var jmOriginalFilteredOrders=filteredOrders;
+var jmOriginalProductPerformance=productPerformance;
+var jmOriginalRenderFinanceiroView=renderFinanceiroView;
+
+function jmInvalidatePerformanceCaches(reason='data'){
+  jmPerfVersion++;
+  jmAnalyzedCache={key:'',value:null};
+  jmFilteredCache={key:'',value:null};
+  jmProductPerformanceCache=new WeakMap();
+  console.info('[JM3D perf] cache invalidado', reason, 'versao', jmPerfVersion);
+}
+function jmSettingsSignature(){
+  return [
+    localStorage.getItem('jm3d_market_cfg')||'',
+    localStorage.getItem('jm3d_cfg')||'',
+    productCatalog.length,
+    localProducts.length,
+    Object.keys(productMatchRules||{}).length
+  ].join('|');
+}
+function jmFilterSignature(){
+  return [analysisFilters.marketplace,analysisFilters.store,analysisFilters.health,analysisFilters.q,analysisFilters.period,analysisFilters.from,analysisFilters.to].join('|');
+}
+function jmResetProductPaging(){jmProductRenderLimit=jmProductPageSize;}
+function jmHandleFilterInput(value){
+  analysisFilters.q=value;
+  jmResetProductPaging();
+  jmFilteredCache={key:'',value:null};
+  if(typeof debounceRenderContent==='function')debounceRenderContent('filterInput',220);
+  else renderContent();
+}
+function jmClearSearch(){
+  analysisFilters.q='';
+  jmResetProductPaging();
+  jmFilteredCache={key:'',value:null};
+  renderContent();
+}
+function jmSetPeriod(period){
+  analysisFilters.period=period;
+  jmResetProductPaging();
+  jmFilteredCache={key:'',value:null};
+  renderContent();
+}
+function jmSetStore(store){
+  analysisFilters.store=store;
+  jmResetProductPaging();
+  jmFilteredCache={key:'',value:null};
+  renderContent();
+}
+function jmSetProductRank(rank){
+  erpProductRank=rank;
+  jmResetProductPaging();
+  renderErpProducts();
+}
+function jmLoadMoreProducts(){
+  jmProductRenderLimit+=jmProductPageSize;
+  renderErpProducts();
+}
+
+analyzedOrders=function(){
+  const key=[jmPerfVersion,marketplaceOrders.length,jmSettingsSignature()].join('|');
+  if(jmAnalyzedCache.key===key&&jmAnalyzedCache.value)return jmAnalyzedCache.value;
+  console.time('calculateOrders');
+  const result=jmOriginalAnalyzedOrders();
+  console.timeEnd('calculateOrders');
+  console.info('[JM3D perf] pedidos analisados', result.length);
+  jmAnalyzedCache={key,value:result};
+  jmFilteredCache={key:'',value:null};
+  jmProductPerformanceCache=new WeakMap();
+  return result;
+};
+
+filteredOrders=function(){
+  analyzedOrders();
+  const key=[jmAnalyzedCache.key||jmPerfVersion,jmFilterSignature()].join('|');
+  if(jmFilteredCache.key===key&&jmFilteredCache.value)return jmFilteredCache.value;
+  console.time('filterOrders');
+  const result=jmOriginalFilteredOrders();
+  console.timeEnd('filterOrders');
+  console.info('[JM3D perf] pedidos filtrados', result.length);
+  jmFilteredCache={key,value:result};
+  return result;
+};
+
+productPerformance=function(orders=filteredOrders()){
+  const cached=jmProductPerformanceCache.get(orders);
+  if(cached&&cached.version===jmPerfVersion)return cached.value;
+  console.time('loadProducts');
+  const result=jmOriginalProductPerformance(orders);
+  console.timeEnd('loadProducts');
+  console.info('[JM3D perf] produtos calculados', result.length, 'pedidos usados', orders.length);
+  jmProductPerformanceCache.set(orders,{version:jmPerfVersion,value:result});
+  return result;
+};
+
+renderFinanceiroView=function(){
+  console.time('calculateDashboard');
+  const html=jmOriginalRenderFinanceiroView();
+  console.timeEnd('calculateDashboard');
+  return html;
+};
+
+auditProductCalculations=function(context,products){
+  if(!Array.isArray(products))return;
+  const rows=products.filter(p=>Number(p.qty)>0).map(p=>{
+    const qty=Number(p.qty)||0, revenue=Number(p.net)||0, unit=Number(p.unitCost)||0;
+    const canCalculate=p.calculationStatus==='ok'&&qty>0&&revenue>0&&unit>0;
+    const expectedCost=canCalculate?unit*qty:0, expectedProfit=canCalculate?revenue-expectedCost:0, expectedMargin=canCalculate&&revenue?expectedProfit/revenue*100:null;
+    return {
+      nome:p.name,
+      quantidadeVendida:qty,
+      receitaLiquidaTotal:Number(revenue.toFixed(2)),
+      custoUnitarioReal:canCalculate?Number(unit.toFixed(2)):null,
+      custoTotalReal:canCalculate?Number(expectedCost.toFixed(2)):null,
+      lucroReal:canCalculate?Number(expectedProfit.toFixed(2)):null,
+      margemReal:canCalculate?Number(expectedMargin.toFixed(2)):null,
+      statusCalculo:canCalculate?'OK':(p.calculationPendingReason||p.costStatusLabel||'Pendente'),
+      suspeito:canCalculate&&expectedMargin>70?'SUSPEITO - validar calculo':''
+    };
+  });
+  if(!rows.length)return;
+  const suspects=rows.filter(r=>r.suspeito);
+  window.__jm3dCalculationAudit={context,total:rows.length,rows:rows.slice(0,50),suspects,updatedAt:new Date().toISOString()};
+  console.groupCollapsed(`[JM3D auditoria de calculo] ${context}: ${rows.length} produtos`);
+  console.info('[JM3D perf] auditoria limitada a 50 linhas no console para evitar travamento');
+  if(suspects.length)console.warn('[JM3D auditoria] Produtos com margem acima de 70%', suspects);
+  console.table(rows.slice(0,50));
+  console.groupEnd();
+};
+
+refFilters=function(){
+  return `<div class="ref-filterbar"><div class="ref-searchbar"><input class="fi" placeholder="Buscar produto, pedido, SKU ou item..." value="${ea(analysisFilters.q)}" oninput="jmHandleFilterInput(this.value)" autocomplete="off"><button class="btn btn-secondary" onclick="jmClearSearch()">Limpar</button></div>
+  <div class="ref-pills">${erpPeriodOptions().map(([id,label])=>`<button class="${analysisFilters.period===id?'on':''}" onclick="jmSetPeriod('${id}')">${label}</button>`).join('')}</div>
+  <div class="ref-pills">${erpStores().map(([id,label])=>`<button class="${analysisFilters.store===id?'on':''}" onclick="jmSetStore('${id}')">${label}</button>`).join('')}</div>
+  ${analysisFilters.period==='custom'?`<div class="ref-dates"><input class="fi" type="date" value="${analysisFilters.from}" onchange="analysisFilters.from=this.value;jmFilteredCache={key:'',value:null};renderContent()"><input class="fi" type="date" value="${analysisFilters.to}" onchange="analysisFilters.to=this.value;jmFilteredCache={key:'',value:null};renderContent()"></div>`:''}</div>`;
+};
+
+refProductImage=function(src,alt='Produto'){
+  const label=jmInitials(alt);
+  return src?`<img class="ref-product-img" src="${ea(src)}" alt="${ea(alt)}" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'erp-product-fallback',textContent:'${label}'}))">`:`<div class="erp-product-fallback">${label}</div>`;
+};
+
+renderErpProductCard=function(p){
+  const pending=p.calculationStatus!=='ok'||!Number.isFinite(Number(p.margin));
+  const h=pending?{cls:'warn',label:p.costStatusLabel||p.calculationPendingReason||'Custo incompleto'}:erpHealth(p.margin,p.profit);
+  const badges=[];
+  if(p.qty>=20)badges.push(['good','Mais vendido']);
+  if(!pending&&p.profit>0&&p.margin>=45)badges.push(['good','Excelente']);
+  if(!pending&&p.margin<20)badges.push(['warn','Margem baixa']);
+  if(!pending&&p.profit<0)badges.push(['bad','Prejuízo']);
+  if(pending&&p.qty>0)badges.push(['warn','Pendencia de calculo']);
+  if(!p.linked)badges.push(['bad','Sem vínculo']);
+  if(!p.sku)badges.push(['warn','Sem SKU']);
+  return `<div class="erp-product-card" onclick="openProductDashboard('${ea(p.id)}')">
+    ${p.photo?`<img class="erp-product-img" src="${ea(p.photo)}" alt="${ea(p.name)}" loading="lazy" decoding="async" referrerpolicy="no-referrer">`:`<div class="erp-product-fallback">${jmInitials(p.name)}</div>`}
+    <div><div class="erp-product-name">${esc(p.name)}</div><div class="erp-product-meta">${marketplaceLabel(p.mainMarketplace)} | SKU ${esc(p.sku||'-')} | Item ${esc(p.itemId||'-')}<br>${p.qty} vendas</div>
+    <div class="erp-product-numbers"><div><span>Recebido</span><b>${brl(p.net)}</b></div><div><span>Custou</span><b>${pending?esc(p.costStatusLabel||'Custo incompleto'):brl(p.cost)}</b></div><div><span>Lucro</span><b>${pending?'--':brl(p.profit)}</b></div><div><span>Margem</span><b>${pending?'--':pct(p.margin)}</b></div></div>
+    <div class="badge-row"><span class="biz-badge ${h.cls}">${h.label}</span>${badges.map(([cls,b])=>`<span class="biz-badge ${cls}">${b}</span>`).join('')}</div></div>
+  </div>`;
+};
+
+renderErpProducts=function(){
+  const content=document.getElementById('content'); if(!content)return;
+  console.time('renderProducts');
+  const orders=filteredOrders(), products=productPerformance(orders);
+  const realMargin=p=>p.calculationStatus==='ok'?Number(p.margin):-Infinity;
+  const lowMarginValue=p=>p.calculationStatus==='ok'?Number(p.margin):Infinity;
+  const realProfit=p=>p.calculationStatus==='ok'?Number(p.profit):0;
+  const rankers={
+    sold:(a,b)=>b.qty-a.qty, profit:(a,b)=>realProfit(b)-realProfit(a), margin:(a,b)=>realMargin(b)-realMargin(a),
+    lowMargin:(a,b)=>lowMarginValue(a)-lowMarginValue(b), loss:(a,b)=>realProfit(a)-realProfit(b), slow:(a,b)=>a.qty-b.qty
+  };
+  const labels={sold:'Mais vendidos',profit:'Mais lucrativos',margin:'Maior margem',lowMargin:'Menor margem',loss:'Prejuízo',slow:'Pouca saída'};
+  const query=norm(analysisFilters.q);
+  const visibleProducts=query?products.filter(p=>norm(`${p.name} ${p.sku} ${p.itemId} ${p.category} ${p.mainMarketplace}`).includes(query)):products;
+  const rows=[...visibleProducts].sort(rankers[erpProductRank]||rankers.profit);
+  const rendered=rows.slice(0,jmProductRenderLimit);
+  auditProductCalculations('Produtos',rows);
+  const actions=`<button class="btn btn-primary" onclick="openStoreProductImport()">Importar produtos da loja</button><button class="btn btn-secondary" onclick="swTab('calc')">Cadastrar manual</button>`;
+  content.innerHTML=`<div class="ref-dashboard jm-page jm-products-page">
+    ${jmPageHead('Produtos','Central de produtos','Fotos reais, SKU, itemId, vendas, custos e margem por produto.',actions)}
+    ${refFilters()}
+    <section class="ref-card jm-panel"><h3>Catálogo de gestão <small>${rows.length} produtos</small></h3>
+      <div class="product-rank-tabs">${Object.keys(labels).map(k=>`<button class="${erpProductRank===k?'on':''}" onclick="jmSetProductRank('${k}')">${labels[k]}</button>`).join('')}</div>
+      ${rows.length?`<div class="jm-products-grid">${rendered.map(renderErpProductCard).join('')}</div>${rows.length>rendered.length?`<div class="jm-action-row"><button class="btn btn-secondary" onclick="jmLoadMoreProducts()">Carregar mais ${Math.min(jmProductPageSize,rows.length-rendered.length)} produtos</button></div>`:''}`:'<div class="empty"><div class="ei">JM</div><div>Importe relatórios para ver performance por produto.</div></div>'}
+    </section>
+  </div>`;
+  console.timeEnd('renderProducts');
+  console.info('[JM3D perf] produtos renderizados', rendered.length, 'de', rows.length);
+};
+
+renderPricingProductCard=function(p){
+  const c=productUnitCost(p,0), min=priceForMargin(c.total,'shopee',0), sh30=priceForMargin(c.total,'shopee',30), tk30=priceForMargin(c.total,'tiktok',30);
+  const current=Number(p.marketplaceSettings?.shopee?.salePrice ?? p.price)||0, health=current&&current<min?'bad':current&&current<priceForMargin(c.total,'shopee',10)?'warn':'ok';
+  const weight=p.costs?.weightGrams??p.weight??0, hours=p.costs?.printTimeHours??p.printH??0;
+  const costParts=pricingCostParts(c), total=Number(c.total)||0;
+  return `<div class="erp-product-card"><div>${p.photoUrl||p.photo?`<img class="erp-product-img" src="${ea(p.photoUrl||p.photo)}" alt="${ea(p.name)}" loading="lazy" decoding="async" referrerpolicy="no-referrer">`:`<div class="erp-product-fallback">${jmInitials(p.name)}</div>`}</div><div><div class="erp-product-name">${esc(p.name)}</div><div class="erp-product-meta">SKU ${esc(p.sku||'-')} | custo técnico ${brl(c.total)} | ${weight}g | ${hours}h</div>
+    <div class="erp-product-numbers"><div><span>Mínimo</span><b>${brl(min)}</b></div><div><span>Shopee 30%</span><b>${brl(sh30)}</b></div><div><span>TikTok 30%</span><b>${brl(tk30)}</b></div><div><span>Status</span><b>${health==='bad'?'Baixo':health==='warn'?'Atenção':'Saudável'}</b></div></div>
+    <div class="cost-bars" title="Composicao do custo tecnico">${costParts.map(part=>`<span style="width:${Math.max(0.5,Math.min(100,total?part.value/total*100:0))}%;background:${part.color}"></span>`).join('')}</div>
+    <div class="cost-card-legend">${costParts.filter(p=>p.value>0).map(part=>`<span><i style="background:${part.color}"></i>${part.label} ${brl(part.value)}</span>`).join('')||'<span>Custo tecnico nao detalhado</span>'}</div></div></div>`;
+};
+
+function jmSetPricingProduct(id){
+  erpPricingProductId=id;
+  renderContent();
+}
+function jmSetPricingPrice(value){
+  erpPricingPrice=parseMoneyBR(value);
+  if(typeof debounceRenderContent==='function')debounceRenderContent('pricingPrice',140);
+  else renderContent();
+}
+renderPricingView=function(){
+  const catalog=typeof mergedProductCatalog==='function'?mergedProductCatalog():localProducts;
+  if(!erpPricingProductId&&catalog[0])erpPricingProductId=catalog[0].id;
+  const product=catalog.find(p=>p.id===erpPricingProductId)||catalog[0]||null;
+  const cost=product?productUnitCost(product,0).total:0;
+  const price=Number(erpPricingPrice)||0;
+  const actions=`<button class="btn btn-primary" onclick="swTab('calc')">Abrir cadastro completo</button>`;
+  return `<div class="ref-dashboard jm-page jm-pricing-page">
+    ${jmPageHead('Precificação','Simulador profissional','Compare Shopee, TikTok e venda direta pelo dinheiro que realmente sobra.',actions)}
+    <div class="jm-pricing-grid">
+      <section class="ref-card jm-panel jm-pricing-main"><h3>Quanto sobra se vender por...</h3>
+        <select class="fi" onchange="jmSetPricingProduct(this.value)">${catalog.map(p=>`<option value="${p.id}" ${product&&product.id===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select>
+        <label class="fl">Preço de venda</label><input class="fi" type="number" value="${price}" oninput="jmSetPricingPrice(this.value)">
+        <div class="pricing-sim-grid">${renderChannelSim('Shopee','shopee',price,cost)}${renderChannelSim('TikTok Shop','tiktok',price,cost)}${renderChannelSim('Venda direta','direct',price,cost)}</div>
+      </section>
+      <section class="ref-card jm-panel jm-pricing-side"><h3>Preço ideal <small>Shopee como base</small></h3><div class="ideal-grid jm-ideal-grid">${idealCard('Preço mínimo',priceForMargin(cost,'shopee',0))}${idealCard('Preço saudável',priceForMargin(cost,'shopee',20))}${idealCard('Recomendado',priceForMargin(cost,'shopee',30))}${idealCard('Premium',priceForMargin(cost,'shopee',50))}</div></section>
+    </div>
+    ${renderPricingProducts()}
+  </div>`;
+};
+renderPricingProducts=function(){
+  const catalog=typeof mergedProductCatalog==='function'?mergedProductCatalog():localProducts;
+  if(!catalog.length)return '<section class="ref-card jm-panel"><div class="empty"><div class="ei">JM</div><div>Cadastre produtos para simular preços profissionais.</div></div></section>';
+  const query=norm(analysisFilters.q);
+  const rows=(query?catalog.filter(p=>norm(`${p.name} ${p.sku} ${firstMarketplaceId(p)} ${p.category}`).includes(query)):catalog).slice(0,20);
+  return `<section class="ref-card jm-panel"><h3>Comparacao real por produto <small>${rows.length} de ${catalog.length} no catalogo</small></h3>
+    <div class="pricing-tools"><div class="ref-searchbar"><input class="fi" placeholder="Buscar produto, SKU ou item..." value="${ea(analysisFilters.q)}" oninput="jmHandleFilterInput(this.value)" autocomplete="off"><button class="btn btn-secondary" onclick="jmClearSearch()">Limpar</button></div>${pricingLegendHtml()}</div>
+    <div class="pricing-help-grid">
+      <div><b>Minimo</b><span>preco para nao ter prejuizo.</span></div>
+      <div><b>Shopee 30%</b><span>preco sugerido com taxas da Shopee e 30% de margem.</span></div>
+      <div><b>TikTok 30%</b><span>preco sugerido com taxas do TikTok e 30% de margem.</span></div>
+      <div><b>Status</b><span>saude do preco atual cadastrado.</span></div>
+    </div>
+    <div class="jm-products-grid">${rows.length?rows.map(renderPricingProductCard).join(''):'<div class="empty"><div class="ei">JM</div><div>Nenhum produto encontrado para a busca.</div></div>'}</div></section>`;
+};
 function moneyCard(label,value,cls,sub=''){
   return `<div class="money-card ${cls}"><div class="tag">${label}</div><div class="amount">${value}</div>${sub?`<div class="sub">${sub}</div>`:''}</div>`;
 }
